@@ -1,7 +1,13 @@
 // filepath: c:\Users\DELL\Desktop\jobfinder\my-server\src\controllers\authController.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import User from '../models/userModel';
+import User, { IUser } from '../models/userModel';
+import mongoose from 'mongoose';
+
+// Add this interface to extend the Request type
+interface AuthRequest extends Request {
+  user: { id: string; role?: string };
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
@@ -10,7 +16,7 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 const signToken = (id: string): string => {
   return jwt.sign({ id }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN
-  });
+  } as jwt.SignOptions);
 };
 
 export const register = async (req: Request, res: Response): Promise<void> => {
@@ -33,10 +39,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       email,
       password,
       role
-    });
+    }) as IUser & { _id: mongoose.Types.ObjectId };
 
     // Generate JWT
-    const token = signToken(user._id);
+    const token = signToken(user._id.toString());
 
     res.status(201).json({
       status: 'success',
@@ -72,7 +78,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check if user exists & password is correct
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email }).select('+password') as (IUser & { _id: mongoose.Types.ObjectId }) | null;
     
     if (!user || !(await user.comparePassword(password))) {
       res.status(401).json({
@@ -83,7 +89,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Generate token
-    const token = signToken(user._id);
+    const token = signToken(user._id.toString());
 
     res.status(200).json({
       status: 'success',
@@ -105,9 +111,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// Get current user
-export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
+// Get current user - Fixed by using AuthRequest interface
+export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Now req.user is properly typed 
     const user = await User.findById(req.user.id);
 
     res.status(200).json({
