@@ -4,15 +4,6 @@ import User from '../models/userModel';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
-// Extend Express Request type
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
-    }
-  }
-}
-
 export const protect = async (
   req: Request, 
   res: Response, 
@@ -34,8 +25,8 @@ export const protect = async (
       return;
     }
 
-    // Verify token
-    const decoded: any = jwt.verify(token, JWT_SECRET);
+    // Verify token with proper typing
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
     
     // Get user from token
     const user = await User.findById(decoded.id);
@@ -47,8 +38,12 @@ export const protect = async (
       return;
     }
 
-    // Add user to request object
-    req.user = user;
+    // Add user to request object - using the type declared in authController.ts
+    req.user = {
+      id: String(user._id),
+      role: user.role
+    };
+    
     next();
   } catch (error) {
     res.status(401).json({
@@ -60,8 +55,9 @@ export const protect = async (
 
 // Middleware to restrict access based on role
 export const restrictTo = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!roles.includes(req.user.role)) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Check if user exists first, then check role
+    if (!req.user || !req.user.role || !roles.includes(req.user.role)) {
       res.status(403).json({
         status: 'fail',
         message: 'You do not have permission to perform this action'

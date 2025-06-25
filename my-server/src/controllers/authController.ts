@@ -4,9 +4,13 @@ import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/userModel';
 import mongoose from 'mongoose';
 
-// Add this interface to extend the Request type
-interface AuthRequest extends Request {
-  user: { id: string; role?: string };
+// Extend Express Request interface to include user property
+declare global {
+  namespace Express {
+    interface Request {
+      user?: { id: string; role?: string };
+    }
+  }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
@@ -111,11 +115,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// Get current user - Fixed by using AuthRequest interface
-export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<void> => {
+// Get current user - Fixed by using proper type declaration
+export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Now req.user is properly typed 
-    const user = await User.findById(req.user.id);
+    // Now req.user is properly typed through global declaration
+    const user = await User.findById(req.user?.id);
 
     res.status(200).json({
       status: 'success',
