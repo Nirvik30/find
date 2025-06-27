@@ -19,7 +19,8 @@ import {
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
-  AlertCircleIcon
+  AlertCircleIcon,
+  BellRing
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -473,6 +474,18 @@ export default function ApplicantDashboard() {
                   <div>
                     <h3 className="font-semibold text-foreground">Messages</h3>
                     <p className="text-sm text-muted-foreground">Check recruiter messages</p>
+                  </div>
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
+              <CardContent className="pt-6">
+                <Link to="/applicant/job-alerts" className="flex items-center gap-3">
+                  <BellRing className="h-6 w-6 text-amber-500" />
+                  <div>
+                    <h3 className="font-semibold text-foreground">Job Alerts</h3>
+                    <p className="text-sm text-muted-foreground">Get notified about new opportunities</p>
                   </div>
                 </Link>
               </CardContent>

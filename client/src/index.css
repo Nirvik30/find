@@ -74,11 +74,55 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
     transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+/* Fix for Select dropdown styling */
+[data-radix-select-content] {
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  z-index: 50;
+}
+
+/* Force proper z-index for select dropdowns */
+[data-radix-select-content] {
+  z-index: 9999 !important;
+}
+
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
+
+/* Ensure select trigger has proper styling */
+[data-radix-select-trigger] {
+  background-color: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+[data-radix-select-item] {
+  color: hsl(var(--foreground)) !important;
+}
+
+[data-radix-select-item]:hover {
+  background-color: hsl(var(--accent)) !important;
+}
+
+/* Fix for line-clamp utility */
+@layer utilities {
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 }
 

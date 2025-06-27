@@ -54,8 +54,8 @@ export default function JobBrowse() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [experienceFilter, setExperienceFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [experienceFilter, setExperienceFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
@@ -129,14 +129,30 @@ export default function JobBrowse() {
   };
 
   const filteredJobs = jobs.filter(job => {
-    const matchesSearch = job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         job.company.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesLocation = !locationFilter || job.location.toLowerCase().includes(locationFilter.toLowerCase());
-    const matchesType = !typeFilter || job.type === typeFilter;
-    const matchesExperience = !experienceFilter || job.experience.includes(experienceFilter);
+    const matchesSearch = !searchTerm || 
+      job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.description.toLowerCase().includes(searchTerm.toLowerCase());
     
+    const matchesLocation = !locationFilter || 
+      job.location.toLowerCase().includes(locationFilter.toLowerCase());
+    
+    const matchesType = !typeFilter || typeFilter === 'all' || job.type === typeFilter;
+    
+    const matchesExperience = !experienceFilter || experienceFilter === 'all' || 
+      job.experience.toLowerCase().includes(experienceFilter.toLowerCase()) ||
+      (experienceFilter === '0-1' && (job.experience.includes('0-1') || job.experience.toLowerCase().includes('entry'))) ||
+      (experienceFilter === '1-3' && (job.experience.includes('1-3') || job.experience.toLowerCase().includes('junior'))) ||
+      (experienceFilter === '3-5' && (job.experience.includes('3-5') || job.experience.toLowerCase().includes('mid'))) ||
+      (experienceFilter === '5+' && (job.experience.includes('5+') || job.experience.toLowerCase().includes('senior')));
+
     return matchesSearch && matchesLocation && matchesType && matchesExperience;
   });
+
+  useEffect(() => {
+    console.log('Filters changed:', { searchTerm, locationFilter, typeFilter, experienceFilter });
+    console.log('Filtered jobs count:', filteredJobs.length);
+  }, [searchTerm, locationFilter, typeFilter, experienceFilter, filteredJobs.length]);
 
   if (loading) {
     return (
@@ -187,17 +203,26 @@ export default function JobBrowse() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => setShowFilters(!showFilters)}
+                onClick={() => {
+                  console.log('Filter button clicked, current showFilters:', showFilters);
+                  setShowFilters(!showFilters);
+                  console.log('Setting showFilters to:', !showFilters);
+                  
+                  // Force a re-render after a small delay
+                  setTimeout(() => {
+                    console.log('After timeout, showFilters is:', showFilters);
+                  }, 100);
+                }}
               >
                 <Filter className="h-4 w-4 mr-2" />
-                Filters
+                Filters {showFilters ? '(Hide)' : '(Show)'}
               </Button>
             </div>
 
             {showFilters && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg border">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Location</label>
+                  <label className="block text-sm font-medium mb-2">Location</label>
                   <Input
                     placeholder="Enter location..."
                     value={locationFilter}
@@ -205,13 +230,13 @@ export default function JobBrowse() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Job Type</label>
+                  <label className="block text-sm font-medium mb-2">Job Type</label>
                   <Select value={typeFilter} onValueChange={setTypeFilter}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Types</SelectItem>
+                      <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="Full-time">Full-time</SelectItem>
                       <SelectItem value="Part-time">Part-time</SelectItem>
                       <SelectItem value="Contract">Contract</SelectItem>
@@ -220,13 +245,13 @@ export default function JobBrowse() {
                   </Select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Experience</label>
+                  <label className="block text-sm font-medium mb-2">Experience</label>
                   <Select value={experienceFilter} onValueChange={setExperienceFilter}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select experience" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Levels</SelectItem>
+                      <SelectItem value="all">All Levels</SelectItem>
                       <SelectItem value="0-1">Entry Level</SelectItem>
                       <SelectItem value="1-3">Junior</SelectItem>
                       <SelectItem value="3-5">Mid Level</SelectItem>
@@ -238,9 +263,10 @@ export default function JobBrowse() {
                   <Button
                     variant="outline"
                     onClick={() => {
+                      setSearchTerm('');
                       setLocationFilter('');
-                      setTypeFilter('');
-                      setExperienceFilter('');
+                      setTypeFilter('all');
+                      setExperienceFilter('all');
                     }}
                     className="w-full"
                   >
@@ -251,11 +277,67 @@ export default function JobBrowse() {
             )}
           </div>
 
-          {/* Results Count */}
-          <div className="mt-4">
+          {/* Results Count - Enhanced */}
+          <div className="mt-4 flex items-center justify-between">
             <p className="text-muted-foreground">
               {filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''} found
+              {(searchTerm || locationFilter || typeFilter || experienceFilter) && (
+                <span className="ml-2 text-primary">
+                  (filtered from {jobs.length} total)
+                </span>
+              )}
             </p>
+            
+            {/* Active Filters Display */}
+            {(searchTerm || locationFilter || (typeFilter && typeFilter !== 'all') || (experienceFilter && experienceFilter !== 'all')) && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Active filters:</span>
+                {searchTerm && (
+                  <Badge variant="secondary" className="text-xs">
+                    Search: {searchTerm}
+                    <button 
+                      onClick={() => setSearchTerm('')}
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                )}
+                {locationFilter && (
+                  <Badge variant="secondary" className="text-xs">
+                    Location: {locationFilter}
+                    <button 
+                      onClick={() => setLocationFilter('')}
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                )}
+                {typeFilter && typeFilter !== 'all' && (
+                  <Badge variant="secondary" className="text-xs">
+                    Type: {typeFilter}
+                    <button 
+                      onClick={() => setTypeFilter('all')}
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                )}
+                {experienceFilter && experienceFilter !== 'all' && (
+                  <Badge variant="secondary" className="text-xs">
+                    Experience: {experienceFilter}
+                    <button 
+                      onClick={() => setExperienceFilter('all')}
+                      className="ml-1 text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -335,8 +417,11 @@ export default function JobBrowse() {
                       <div className="flex gap-2">
                         <Button 
                           variant="outline"
+                          asChild
                         >
-                          View Details
+                          <Link to={`/applicant/jobs/${job.id}`}>
+                            View Details
+                          </Link>
                         </Button>
                         <Button>
                           Apply Now
