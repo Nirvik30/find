@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom'; // Include Link here
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,7 +30,6 @@ import {
   Eye,
   Clock,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 interface JobPost {

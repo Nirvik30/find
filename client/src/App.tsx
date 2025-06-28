@@ -1,25 +1,28 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import { ChatProvider } from '@/contexts/ChatContext'; // Import the ChatProvider
+import { ChatProvider } from '@/contexts/ChatContext';
 
+// Applicant Pages
+import ApplicantDashboard from '@/pages/applicant/ApplicantDashboard';
+import JobBrowse from '@/pages/applicant/JobBrowse';
+import JobDetails from '@/pages/applicant/JobDetails';
+import SavedJobs from '@/pages/applicant/SavedJobs';
+import MyApplications from '@/pages/applicant/MyApplications';
+import ResumeManager from '@/pages/applicant/ResumeManager';
+import Messages from '@/pages/applicant/Messages';
+import JobAlerts from '@/pages/applicant/JobAlerts';
+
+// Recruiter Pages
+import RecruiterDashboard from '@/pages/recruiter/RecruiterDashboard';
+import JobPostForm from '@/pages/recruiter/JobPostForm';
+import JobPostList from '@/pages/recruiter/JobPostList';
+import ApplicationsList from '@/pages/recruiter/ApplicationsList';
 // Import components
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
-
-// Import dashboard components
-import ApplicantDashboard from '@/pages/applicant/ApplicantDashboard';
-import JobBrowse from '@/pages/applicant/JobBrowse';
-import RecruiterDashboard from '@/pages/recruiter/RecruiterDashboard';
-import ProfileManagement from '@/pages/applicant/ProfileManagement';
-import MyApplications from '@/pages/applicant/MyApplications';
-import ResumeManager from '@/pages/applicant/ResumeManager';
-import SavedJobs from '@/pages/applicant/SavedJobs';
-import Messages from '@/pages/applicant/Messages';
-import JobDetails from '@/pages/applicant/JobDetails';
-import JobAlerts from '@/pages/applicant/JobAlerts';
 
 // Create simple page components with theme toggle
 const HomePage = () => (
@@ -77,15 +80,16 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ChatProvider> {/* Add the ChatProvider */}
+        <ChatProvider>
           <Router>
             <Routes>
+              {/* Public Routes */}
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/unauthorized" element={<UnauthorizedPage />} />
               
-              {/* Protected routes */}
+              {/* Applicant Routes */}
               <Route
                 path="/applicant/dashboard"
                 element={
@@ -95,7 +99,6 @@ function App() {
                   />
                 }
               />
-              
               <Route
                 path="/applicant/jobs"
                 element={
@@ -106,68 +109,61 @@ function App() {
                 }
               />
               <Route
-  path="/applicant/profile"
-  element={
-    <ProtectedRoute
-      element={<ProfileManagement />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/applications"
-  element={
-    <ProtectedRoute
-      element={<MyApplications />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/resume"
-  element={
-    <ProtectedRoute
-      element={<ResumeManager />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/saved-jobs"
-  element={
-    <ProtectedRoute
-      element={<SavedJobs />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/messages"
-  element={
-    <ProtectedRoute
-      element={<Messages />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/jobs/:id"
-  element={
-    <ProtectedRoute
-      element={<JobDetails />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
-<Route
-  path="/applicant/job-alerts"
-  element={
-    <ProtectedRoute
-      element={<JobAlerts />}
-      allowedRoles={['applicant']}
-    />
-  }
-/>
+                path="/applicant/jobs/:id"
+                element={
+                  <ProtectedRoute
+                    element={<JobDetails />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              <Route
+                path="/applicant/saved-jobs"
+                element={
+                  <ProtectedRoute
+                    element={<SavedJobs />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              <Route
+                path="/applicant/applications"
+                element={
+                  <ProtectedRoute
+                    element={<MyApplications />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              <Route
+                path="/applicant/resume"
+                element={
+                  <ProtectedRoute
+                    element={<ResumeManager />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              <Route
+                path="/applicant/messages"
+                element={
+                  <ProtectedRoute
+                    element={<Messages />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              <Route
+                path="/applicant/job-alerts"
+                element={
+                  <ProtectedRoute
+                    element={<JobAlerts />}
+                    allowedRoles={['applicant']}
+                  />
+                }
+              />
+              
+              {/* Recruiter Routes */}
               <Route
                 path="/recruiter/dashboard"
                 element={
@@ -177,6 +173,24 @@ function App() {
                   />
                 }
               />
+              <Route path="/recruiter/job-posts" element={<JobPostList />} />
+              <Route path="/recruiter/job-post/new" element={<JobPostForm />} />
+              <Route path="/recruiter/job-post/:id/edit" element={<JobPostForm />} />
+              <Route path="/recruiter/job-post/:id/preview" element={<div>Job Preview</div>} />
+              <Route
+                path="/recruiter/applications"
+                element={
+                  <ProtectedRoute
+                    element={<ApplicationsList />}
+                    allowedRoles={['recruiter']}
+                  />
+                }
+              />
+              <Route path="/recruiter/messages" element={<div>Recruiter Messages</div>} />
+              <Route path="/recruiter/company-profile" element={<div>Company Profile</div>} />
+              
+              {/* 404 Route */}
+              <Route path="*" element={<div>404 Page Not Found</div>} />
             </Routes>
           </Router>
         </ChatProvider>
