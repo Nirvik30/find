@@ -18,6 +18,8 @@ import RecruiterDashboard from '@/pages/recruiter/RecruiterDashboard';
 import JobPostForm from '@/pages/recruiter/JobPostForm';
 import JobPostList from '@/pages/recruiter/JobPostList';
 import ApplicationsList from '@/pages/recruiter/ApplicationsList';
+import RecruiterMessages from '@/pages/recruiter/RecruiterMessages';
+import CompanyProfile from '@/pages/recruiter/CompanyProfile';
 // Import components
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { LoginForm } from '@/components/auth/LoginForm';
@@ -186,8 +188,24 @@ function App() {
                   />
                 }
               />
-              <Route path="/recruiter/messages" element={<div>Recruiter Messages</div>} />
-              <Route path="/recruiter/company-profile" element={<div>Company Profile</div>} />
+              <Route
+                path="/recruiter/messages"
+                element={
+                  <ProtectedRoute
+                    element={<RecruiterMessages />}
+                    allowedRoles={['recruiter']}
+                  />
+                }
+              />
+              <Route
+                path="/recruiter/company-profile"
+                element={
+                  <ProtectedRoute
+                    element={<CompanyProfile />}
+                    allowedRoles={['recruiter']}
+                  />
+                }
+              />
               
               {/* 404 Route */}
               <Route path="*" element={<div>404 Page Not Found</div>} />
