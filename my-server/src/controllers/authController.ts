@@ -1,31 +1,35 @@
 // filepath: c:\Users\DELL\Desktop\jobfinder\my-server\src\controllers\authController.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import User, { IUser } from '../models/userModel';
+import Company from '../models/companyModel';
 import mongoose from 'mongoose';
 
 // Extend Express Request interface to include user property
 declare global {
   namespace Express {
     interface Request {
-      user?: { id: string; role?: string };
+      user?: { id: string; role?: string; name?: string; };
     }
   }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 // Generate JWT token
 const signToken = (id: string): string => {
   return jwt.sign({ id }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN
-  } as jwt.SignOptions);
+  });
 };
 
+// Register user
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, companyName } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -37,13 +41,53 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Create new user
+    let companyId;
+
+    // If recruiter, create or find company
+    if (role === 'recruiter') {
+      if (!companyName) {
+        res.status(400).json({
+          status: 'fail',
+          message: 'Company name is required for recruiters'
+        });
+        return;
+      }
+
+      // Check if company already exists
+      let company = await Company.findOne({ name: companyName });
+
+      // If not, create a new company
+      if (!company) {
+        company = await Company.create({
+          name: companyName,
+          industry: 'Technology',
+          website: `https://${companyName.toLowerCase().replace(/\s/g, '')}.com`,
+          location: 'Remote',
+          size: '1-50',
+          about: `${companyName} is a growing company...`,
+        });
+      }
+
+      companyId = company._id;
+    }
+
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(20).toString('hex');
+
+    // Create user
     const user = await User.create({
       name,
       email,
       password,
-      role
+      role,
+      companyName,
+      companyId,
+      emailVerificationToken: verificationToken,
+      isEmailVerified: false // In production, this would be false until verified
     }) as IUser & { _id: mongoose.Types.ObjectId };
+
+    // In a production app, you would send an email with the verification token
+    console.log(`Verification URL: ${CLIENT_URL}/verify-email?token=${verificationToken}`);
 
     // Generate JWT
     const token = signToken(user._id.toString());
@@ -56,7 +100,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          companyName: user.companyName,
+          companyId: user.companyId,
+          isEmailVerified: user.isEmailVerified
         }
       }
     });
@@ -68,6 +115,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+// Login user
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
@@ -103,7 +151,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          companyName: user.companyName,
+          companyId: user.companyId,
+          isEmailVerified: user.isEmailVerified,
+          avatar: user.avatar,
+          location: user.location
         }
       }
     });
@@ -115,16 +168,207 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// Get current user - Fixed by using proper type declaration
+// Get current user
 export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
   try {
     // Now req.user is properly typed through global declaration
     const user = await User.findById(req.user?.id);
+    
+    if (!user) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'User not found'
+      });
+      return;
+    }
 
     res.status(200).json({
       status: 'success',
       data: {
-        user
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          companyName: user.companyName,
+          companyId: user.companyId,
+          isEmailVerified: user.isEmailVerified,
+          avatar: user.avatar,
+          location: user.location,
+          phone: user.phone,
+          headline: user.headline,
+          bio: user.bio,
+          skills: user.skills
+        }
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+// Verify email
+export const verifyEmail = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.body;
+    
+    const user = await User.findOne({ emailVerificationToken: token });
+    
+    if (!user) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Invalid verification token'
+      });
+      return;
+    }
+    
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    await user.save();
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Email successfully verified'
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+// Forgot password
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'There is no user with that email'
+      });
+      return;
+    }
+    
+    // Generate reset token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    
+    // Hash token and set to resetPasswordToken field
+    user.resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+    
+    // Set token expiration (10 minutes)
+    user.resetPasswordExpire = new Date(Date.now() + 10 * 60 * 1000);
+    
+    await user.save({ validateBeforeSave: false });
+    
+    // In a production app, send email with reset URL
+    const resetURL = `${CLIENT_URL}/reset-password?token=${resetToken}`;
+    console.log(`Password reset URL: ${resetURL}`);
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset email sent'
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+// Reset password
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, password } = req.body;
+    
+    // Hash token from parameters
+    const resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+    
+    // Find user with matching token that hasn't expired
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+    
+    if (!user) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Invalid or expired token'
+      });
+      return;
+    }
+    
+    // Update password and clear reset token fields
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    
+    await user.save();
+    
+    // Generate new token for auto login
+    const newToken = signToken(user._id.toString());
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset successful',
+      token: newToken
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+// Update user profile
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, location, phone, headline, bio, skills } = req.body;
+    
+    // Find user and update
+    const user = await User.findByIdAndUpdate(
+      req.user?.id,
+      { name, location, phone, headline, bio, skills },
+      { new: true, runValidators: true }
+    );
+    
+    if (!user) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'User not found'
+      });
+      return;
+    }
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          location: user.location,
+          phone: user.phone,
+          headline: user.headline,
+          bio: user.bio,
+          skills: user.skills,
+          avatar: user.avatar
+        }
       }
     });
   } catch (error: any) {

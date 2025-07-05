@@ -5,8 +5,21 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
-  role: 'applicant' | 'recruiter';
+  role: 'applicant' | 'recruiter' | 'admin';
+  companyName?: string;
+  companyId?: mongoose.Schema.Types.ObjectId;
+  location?: string;
+  phone?: string;
+  avatar?: string;
+  headline?: string;
+  bio?: string;
+  skills?: string[];
+  isEmailVerified: boolean;
+  emailVerificationToken?: string;
+  resetPasswordToken?: string;
+  resetPasswordExpire?: Date;
   createdAt: Date;
+  updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -30,17 +43,39 @@ const userSchema = new Schema<IUser>({
   },
   role: {
     type: String,
-    enum: ['applicant', 'recruiter'],
-    required: [true, 'Please specify user role']
+    enum: ['applicant', 'recruiter', 'admin'],
+    default: 'applicant',
+    required: true
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+  companyName: {
+    type: String,
+    required: function(this: IUser) {
+      return this.role === 'recruiter';
+    }
+  },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company'
+  },
+  location: String,
+  phone: String,
+  avatar: String,
+  headline: String,
+  bio: String,
+  skills: [String],
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerificationToken: String,
+  resetPasswordToken: String,
+  resetPasswordExpire: Date
+}, {
+  timestamps: true
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre<IUser>('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
