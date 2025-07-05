@@ -5,7 +5,7 @@ export interface IApplication extends Document {
   applicantId: mongoose.Schema.Types.ObjectId;
   resumeId: mongoose.Schema.Types.ObjectId;
   coverLetter?: string;
-  status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected';
+  status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected' | 'withdrawn';
   appliedDate: Date;
   lastUpdated: Date;
   nextAction?: string;
@@ -43,7 +43,7 @@ const applicationSchema = new Schema<IApplication>({
   coverLetter: String,
   status: {
     type: String,
-    enum: ['pending', 'reviewing', 'interview', 'offer', 'accepted', 'rejected'],
+    enum: ['pending', 'reviewing', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn'],
     default: 'pending'
   },
   appliedDate: {

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface JobDetails {
   id: string;
@@ -91,90 +92,28 @@ export default function JobDetails() {
   const fetchJobDetails = async (jobId: string) => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setJob({
-          id: jobId,
-          title: 'Senior Frontend Developer',
-          company: 'TechCorp Innovation',
-          companySize: '1000-5000 employees',
-          industry: 'Technology',
-          location: 'San Francisco, CA',
-          type: 'Full-time',
-          experience: '3-5 years',
-          salary: '$120,000 - $160,000',
-          description: `We are looking for a passionate Senior Frontend Developer to join our growing team and help build cutting-edge web applications that serve millions of users worldwide.
-
-As a Senior Frontend Developer at TechCorp Innovation, you'll be working with the latest technologies including React, TypeScript, and modern CSS frameworks to create exceptional user experiences. You'll collaborate with our design and backend teams to deliver high-quality, scalable solutions.
-
-This is an excellent opportunity for someone who wants to make a significant impact in a fast-growing company while working on challenging and meaningful projects.`,
-          responsibilities: [
-            'Develop and maintain high-quality web applications using React and TypeScript',
-            'Collaborate with UX/UI designers to implement pixel-perfect designs',
-            'Write clean, maintainable, and well-documented code',
-            'Participate in code reviews and provide constructive feedback',
-            'Optimize applications for maximum performance and scalability',
-            'Mentor junior developers and contribute to team knowledge sharing',
-            'Stay up-to-date with the latest frontend technologies and best practices',
-            'Work closely with backend teams to integrate APIs and services'
-          ],
-          requirements: [
-            '5+ years of experience in frontend development',
-            'Expert knowledge of React.js and TypeScript',
-            'Strong understanding of HTML5, CSS3, and modern JavaScript (ES6+)',
-            'Experience with state management libraries (Redux, Zustand, etc.)',
-            'Familiarity with modern build tools (Webpack, Vite, etc.)',
-            'Knowledge of responsive design and cross-browser compatibility',
-            'Experience with version control systems (Git)',
-            'Strong problem-solving skills and attention to detail',
-            'Excellent communication and teamwork abilities',
-            'Bachelor\'s degree in Computer Science or related field (preferred)'
-          ],
-          benefits: [
-            'Competitive salary and equity package',
-            'Comprehensive health, dental, and vision insurance',
-            'Flexible work arrangements and remote work options',
-            '401(k) with company matching',
-            'Unlimited PTO policy',
-            'Professional development budget ($2,000/year)',
-            'Top-tier equipment and home office setup allowance',
-            'Catered meals and snacks in the office',
-            'Gym membership reimbursement',
-            'Annual team retreats and company events'
-          ],
-          skills: ['React', 'TypeScript', 'JavaScript', 'HTML/CSS', 'Node.js', 'GraphQL', 'REST APIs', 'Git'],
-          postedDate: '2024-01-15',
-          applicationDeadline: '2024-02-15',
-          applicants: 45,
-          saved: false,
-          applied: false,
-          matchScore: 95,
-          companyRating: 4.6,
-          companyReviews: 234,
-          remote: true,
-          urgent: true
-        });
-
-        setCompany({
-          about: 'TechCorp Innovation is a leading technology company focused on building innovative solutions that transform how people work and live. Founded in 2015, we\'ve grown from a small startup to a company serving millions of users worldwide.',
-          website: 'https://techcorp.com',
-          founded: '2015',
-          employees: '1000-5000',
-          headquarters: 'San Francisco, CA',
-          culture: ['Innovation', 'Collaboration', 'Work-Life Balance', 'Diversity & Inclusion', 'Continuous Learning']
-        });
-
-        setLoading(false);
-      }, 1000);
+      const response = await api.get(`/jobs/${jobId}`);
+      setJob(response.data.data.job);
+      setCompany(response.data.data.company);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching job details:', error);
       setLoading(false);
     }
   };
 
-  const toggleSaveJob = () => {
-    if (job) {
+  const toggleSaveJob = async () => {
+    if (!job) return;
+    
+    try {
+      if (job.saved) {
+        await api.delete(`/users/saved-jobs/${job.id}`);
+      } else {
+        await api.post(`/users/saved-jobs/${job.id}`);
+      }
       setJob({ ...job, saved: !job.saved });
+    } catch (error) {
+      console.error('Error saving job:', error);
     }
   };
 
@@ -192,16 +131,31 @@ This is an excellent opportunity for someone who wants to make a significant imp
   };
 
   const applyToJob = async () => {
+    if (!job || applying) return;
+    
     try {
       setApplying(true);
-      // TODO: Implement actual application logic
-      setTimeout(() => {
-        if (job) {
-          setJob({ ...job, applied: true });
-        }
-        setApplying(false);
-        // Show success notification
-      }, 2000);
+      // First get user's resumes to select one
+      const resumesResponse = await api.get('/resumes');
+      const resumes = resumesResponse.data.data.resumes;
+      
+      if (resumes.length === 0) {
+        alert('Please create a resume first before applying');
+        navigate('/applicant/resumes');
+        return;
+      }
+      
+      // For now, let's use the default resume or the first one
+      const defaultResume = resumes.find((r: any) => r.isDefault) || resumes[0];
+      
+      // Apply with the selected resume
+      await api.post(`/applications/${job.id}`, {
+        resumeId: defaultResume.id,
+        coverLetter: 'I am excited about this opportunity and believe my skills match well with the job requirements.' // In a real app, you'd have a form for this
+      });
+      
+      setJob({ ...job, applied: true });
+      setApplying(false);
     } catch (error) {
       console.error('Error applying to job:', error);
       setApplying(false);

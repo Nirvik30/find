@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api'; // Adjust the import based on your project structure
 
 interface Job {
   id: string;
@@ -65,57 +66,17 @@ export default function JobBrowse() {
   const fetchJobs = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setJobs([
-          {
-            id: '1',
-            title: 'Senior Frontend Developer',
-            company: 'TechCorp Innovation',
-            location: 'San Francisco, CA',
-            type: 'Full-time',
-            experience: '3-5 years',
-            salary: '$120,000 - $160,000',
-            description: 'We are looking for a passionate Senior Frontend Developer to join our growing team...',
-            requirements: ['React.js', 'TypeScript', 'Node.js', 'GraphQL'],
-            benefits: ['Health Insurance', 'Remote Work', '401k', 'Flexible Hours'],
-            postedDate: '2024-01-15',
-            applicants: 23,
-            saved: false
-          },
-          {
-            id: '2',
-            title: 'React Native Developer',
-            company: 'StartupXYZ',
-            location: 'Remote',
-            type: 'Full-time',
-            experience: '2-4 years',
-            salary: '$90,000 - $130,000',
-            description: 'Join our mobile team to build cutting-edge applications...',
-            requirements: ['React Native', 'JavaScript', 'iOS/Android', 'Redux'],
-            benefits: ['Stock Options', 'Remote Work', 'Learning Budget'],
-            postedDate: '2024-01-12',
-            applicants: 15,
-            saved: true
-          },
-          {
-            id: '3',
-            title: 'Full Stack Engineer',
-            company: 'Digital Solutions Inc',
-            location: 'New York, NY',
-            type: 'Full-time',
-            experience: '1-3 years',
-            salary: '$85,000 - $110,000',
-            description: 'Opportunity to work on both frontend and backend technologies...',
-            requirements: ['JavaScript', 'Python', 'SQL', 'AWS'],
-            benefits: ['Health Insurance', 'Dental', 'Vision', 'PTO'],
-            postedDate: '2024-01-10',
-            applicants: 41,
-            saved: false
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
+      const response = await api.get('/jobs', {
+        params: {
+          search: searchTerm,
+          location: locationFilter,
+          type: typeFilter !== 'all' ? typeFilter : undefined,
+          experience: experienceFilter !== 'all' ? experienceFilter : undefined
+        }
+      });
+      
+      setJobs(response.data.data.jobs);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching jobs:', error);
       setLoading(false);

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface JobPost {
   id: string;
@@ -70,91 +71,9 @@ export default function JobPostList() {
   const fetchJobPosts = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setJobPosts([
-          {
-            id: '1',
-            title: 'Senior Frontend Developer',
-            company: user?.companyName || 'TechCorp',
-            location: 'San Francisco, CA',
-            type: 'Full-time',
-            experience: '3-5 years',
-            salary: '$120,000 - $160,000',
-            status: 'active',
-            isUrgent: true,
-            postedDate: '2024-03-25T09:00:00',
-            updatedDate: '2024-03-25T09:00:00',
-            applications: 47,
-            views: 325,
-            daysRemaining: 15,
-            applicationDeadline: '2024-05-30'
-          },
-          {
-            id: '2',
-            title: 'UI/UX Designer',
-            company: user?.companyName || 'TechCorp',
-            location: 'Remote',
-            type: 'Full-time',
-            experience: '2-4 years',
-            salary: '$90,000 - $120,000',
-            status: 'active',
-            isUrgent: false,
-            postedDate: '2024-03-28T11:30:00',
-            updatedDate: '2024-03-28T11:30:00',
-            applications: 32,
-            views: 218,
-            daysRemaining: 18,
-            applicationDeadline: '2024-05-15'
-          },
-          {
-            id: '3',
-            title: 'React Developer',
-            company: user?.companyName || 'TechCorp',
-            location: 'New York, NY',
-            type: 'Full-time',
-            experience: '1-3 years',
-            salary: '$80,000 - $110,000',
-            status: 'draft',
-            isUrgent: false,
-            postedDate: '2024-04-01T10:15:00',
-            updatedDate: '2024-04-01T10:15:00',
-            applications: 0,
-            views: 0
-          },
-          {
-            id: '4',
-            title: 'Backend Developer',
-            company: user?.companyName || 'TechCorp',
-            location: 'Chicago, IL',
-            type: 'Full-time',
-            experience: '3+ years',
-            salary: '$100,000 - $130,000',
-            status: 'filled',
-            isUrgent: false,
-            postedDate: '2024-03-15T14:00:00',
-            updatedDate: '2024-04-10T09:30:00',
-            applications: 35,
-            views: 290
-          },
-          {
-            id: '5',
-            title: 'DevOps Engineer',
-            company: user?.companyName || 'TechCorp',
-            location: 'Austin, TX',
-            type: 'Full-time',
-            experience: '2+ years',
-            salary: '$95,000 - $125,000',
-            status: 'closed',
-            isUrgent: false,
-            postedDate: '2024-04-05T09:45:00',
-            updatedDate: '2024-04-20T11:20:00',
-            applications: 10,
-            views: 87
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
+      const response = await api.get('/jobs/recruiter/dashboard');
+      setJobPosts(response.data.data.jobs);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching job posts:', error);
       setLoading(false);
@@ -191,9 +110,13 @@ export default function JobPostList() {
     }
   };
   
-  const deleteJobPost = (id: string) => {
-    // TODO: Replace with actual API call
-    setJobPosts(jobPosts.filter(job => job.id !== id));
+  const deleteJobPost = async (id: string) => {
+    try {
+      await api.delete(`/jobs/${id}`);
+      setJobPosts(jobPosts.filter(job => job.id !== id));
+    } catch (error) {
+      console.error('Error deleting job post:', error);
+    }
   };
   
   const filteredJobs = jobPosts.filter(job => {

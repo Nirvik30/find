@@ -4,8 +4,17 @@ import User from '../models/userModel';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
+// Define the extended Request interface
+interface AuthRequest extends Request {
+  user?: { 
+    id: string; 
+    role?: string; 
+    name?: string;
+  };
+}
+
 export const protect = async (
-  req: Request, 
+  req: AuthRequest, 
   res: Response, 
   next: NextFunction
 ): Promise<void> => {
@@ -38,7 +47,7 @@ export const protect = async (
       return;
     }
 
-    // Add user to request object - using the type declared in authController.ts
+    // Add user to request object
     req.user = {
       id: String(user._id),
       role: user.role
@@ -55,7 +64,7 @@ export const protect = async (
 
 // Middleware to restrict access based on role
 export const restrictTo = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     // Check if user exists first, then check role
     if (!req.user || !req.user.role || !roles.includes(req.user.role)) {
       res.status(403).json({

@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface Resume {
   id: string;
@@ -125,42 +126,9 @@ export default function ResumeManager() {
   const fetchResumes = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setResumes([
-          {
-            id: '1',
-            name: 'Software Developer Resume',
-            template: 'modern',
-            lastModified: '2024-01-20',
-            isDefault: true,
-            status: 'published',
-            downloadCount: 15,
-            viewCount: 45
-          },
-          {
-            id: '2',
-            name: 'Frontend Specialist Resume',
-            template: 'creative',
-            lastModified: '2024-01-18',
-            isDefault: false,
-            status: 'draft',
-            downloadCount: 3,
-            viewCount: 12
-          },
-          {
-            id: '3',
-            name: 'Senior Developer Resume',
-            template: 'classic',
-            lastModified: '2024-01-15',
-            isDefault: false,
-            status: 'archived',
-            downloadCount: 8,
-            viewCount: 23
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
+      const response = await api.get('/resumes');
+      setResumes(response.data.data.resumes);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching resumes:', error);
       setLoading(false);
@@ -168,8 +136,9 @@ export default function ResumeManager() {
   };
 
   const createNewResume = () => {
-    const newResume: Resume = {
-      id: Date.now().toString(),
+    // Keep the initial creation in state
+    const newResume = {
+      id: 'temp-' + Date.now().toString(),
       name: 'New Resume',
       template: 'modern',
       lastModified: new Date().toISOString().split('T')[0],
@@ -180,6 +149,7 @@ export default function ResumeManager() {
     };
     
     setSelectedResume(newResume);
+    // Initialize with the basic user info
     setResumeData({
       personalInfo: {
         name: user?.name || '',
@@ -292,25 +262,45 @@ export default function ResumeManager() {
     setResumes([duplicated, ...resumes]);
   };
 
-  const deleteResume = (resumeId: string) => {
-    setResumes(resumes.filter(r => r.id !== resumeId));
+  const deleteResume = async (resumeId: string) => {
+    try {
+      await api.delete(`/resumes/${resumeId}`);
+      setResumes(resumes.filter(r => r.id !== resumeId));
+    } catch (error) {
+      console.error('Error deleting resume:', error);
+    }
   };
 
-  const setDefaultResume = (resumeId: string) => {
-    setResumes(resumes.map(r => ({
-      ...r,
-      isDefault: r.id === resumeId
-    })));
+  const setDefaultResume = async (resumeId: string) => {
+    try {
+      await api.patch(`/resumes/${resumeId}/default`);
+      setResumes(resumes.map(r => ({
+        ...r,
+        isDefault: r.id === resumeId
+      })));
+    } catch (error) {
+      console.error('Error setting default resume:', error);
+    }
   };
 
-  const downloadResume = (resume: Resume, format: 'pdf' | 'docx') => {
-    // TODO: Implement actual download functionality
-    console.log(`Downloading ${resume.name} as ${format}`);
-    setResumes(resumes.map(r => 
-      r.id === resume.id 
-        ? { ...r, downloadCount: r.downloadCount + 1 }
-        : r
-    ));
+  const downloadResume = async (resume: Resume, format: 'pdf' | 'docx') => {
+    try {
+      // First increment the download count
+      await api.patch(`/resumes/${resume.id}/download`);
+      
+      // In a real implementation, you'd need a server endpoint that generates the PDF/DOCX
+      // For now, we'll just update the download count
+      setResumes(resumes.map(r => 
+        r.id === resume.id 
+          ? { ...r, downloadCount: r.downloadCount + 1 }
+          : r
+      ));
+      
+      // Mock download (in production, this would be a real file download)
+      alert(`Resume ${format.toUpperCase()} would be downloaded here`);
+    } catch (error) {
+      console.error(`Error downloading resume as ${format}:`, error);
+    }
   };
 
   const previewResume = (resume: Resume) => {
@@ -324,13 +314,38 @@ export default function ResumeManager() {
   };
 
   const saveResume = async () => {
+    if (!resumeData || !selectedResume) return;
+    
     try {
       setSaving(true);
-      // TODO: Implement actual save functionality
-      setTimeout(() => {
-        setSaving(false);
-        setActiveView('list');
-      }, 1000);
+      
+      const resumePayload = {
+        ...resumeData,
+        name: selectedResume.name,
+        template: selectedResume.template,
+        isDefault: selectedResume.isDefault,
+        status: selectedResume.status
+      };
+      
+      let response;
+      // Check if this is a new resume or an update
+      if (selectedResume.id.startsWith('temp-')) {
+        // Creating a new resume
+        response = await api.post('/resumes', resumePayload);
+        // Replace the temp ID with the real one from the server
+        setSelectedResume({
+          ...selectedResume,
+          id: response.data.data.resume._id
+        });
+      } else {
+        // Updating existing resume
+        response = await api.patch(`/resumes/${selectedResume.id}`, resumePayload);
+      }
+      
+      // Refresh the resumes list to show the updated data
+      await fetchResumes();
+      setSaving(false);
+      setActiveView('list');
     } catch (error) {
       console.error('Error saving resume:', error);
       setSaving(false);

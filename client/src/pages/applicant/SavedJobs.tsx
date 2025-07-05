@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface SavedJob {
   id: string;
@@ -80,118 +81,23 @@ export default function SavedJobs() {
   const fetchSavedJobs = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setSavedJobs([
-          {
-            id: '1',
-            jobId: 'job1',
-            title: 'Senior Frontend Developer',
-            company: 'TechCorp Innovation',
-            location: 'San Francisco, CA',
-            type: 'Full-time',
-            experience: '3-5 years',
-            salary: '$120,000 - $160,000',
-            description: 'We are looking for a passionate Senior Frontend Developer to join our growing team and help build cutting-edge web applications.',
-            requirements: ['React.js', 'TypeScript', 'Node.js', 'GraphQL', 'AWS'],
-            benefits: ['Health Insurance', 'Remote Work', '401k', 'Flexible Hours', 'Stock Options'],
-            postedDate: '2024-01-15',
-            savedDate: '2024-01-16',
-            applicants: 45,
-            isUrgent: true,
-            matchScore: 95,
-            status: 'active',
-            applicationDeadline: '2024-02-15'
-          },
-          {
-            id: '2',
-            jobId: 'job2',
-            title: 'React Native Developer',
-            company: 'StartupXYZ',
-            location: 'Remote',
-            type: 'Full-time',
-            experience: '2-4 years',
-            salary: '$90,000 - $130,000',
-            description: 'Join our mobile team to build cutting-edge applications that will be used by millions of users worldwide.',
-            requirements: ['React Native', 'JavaScript', 'iOS/Android', 'Redux', 'Firebase'],
-            benefits: ['Stock Options', 'Remote Work', 'Learning Budget', 'Flexible Schedule'],
-            postedDate: '2024-01-12',
-            savedDate: '2024-01-14',
-            applicants: 23,
-            isUrgent: false,
-            matchScore: 88,
-            status: 'active',
-            applicationDeadline: '2024-02-12'
-          },
-          {
-            id: '3',
-            jobId: 'job3',
-            title: 'Full Stack Engineer',
-            company: 'Digital Solutions Inc',
-            location: 'New York, NY',
-            type: 'Full-time',
-            experience: '1-3 years',
-            salary: '$85,000 - $110,000',
-            description: 'Opportunity to work on both frontend and backend technologies in a fast-paced startup environment.',
-            requirements: ['JavaScript', 'Python', 'SQL', 'AWS', 'Docker'],
-            benefits: ['Health Insurance', 'Dental', 'Vision', 'PTO', 'Professional Development'],
-            postedDate: '2024-01-10',
-            savedDate: '2024-01-11',
-            applicants: 67,
-            isUrgent: false,
-            matchScore: 82,
-            status: 'active'
-          },
-          {
-            id: '4',
-            jobId: 'job4',
-            title: 'Frontend Developer',
-            company: 'Creative Agency',
-            location: 'Los Angeles, CA',
-            type: 'Contract',
-            experience: '1-2 years',
-            salary: '$70,000 - $95,000',
-            description: 'Contract position working on exciting creative projects for various clients in the entertainment industry.',
-            requirements: ['React', 'CSS', 'JavaScript', 'Figma', 'WordPress'],
-            benefits: ['Flexible Hours', 'Creative Environment', 'Networking Opportunities'],
-            postedDate: '2024-01-05',
-            savedDate: '2024-01-08',
-            applicants: 34,
-            isUrgent: false,
-            matchScore: 75,
-            status: 'expired'
-          },
-          {
-            id: '5',
-            jobId: 'job5',
-            title: 'Lead React Developer',
-            company: 'Enterprise Corp',
-            location: 'Seattle, WA',
-            type: 'Full-time',
-            experience: '5+ years',
-            salary: '$140,000 - $180,000',
-            description: 'Lead a team of developers while working on enterprise-level applications used by Fortune 500 companies.',
-            requirements: ['React', 'TypeScript', 'Leadership', 'Microservices', 'Kubernetes'],
-            benefits: ['Executive Benefits', 'Stock Options', 'Bonus', 'Sabbatical', 'Education Fund'],
-            postedDate: '2024-01-01',
-            savedDate: '2024-01-03',
-            applicants: 156,
-            isUrgent: false,
-            matchScore: 92,
-            status: 'filled'
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
+      const response = await api.get('/users/saved-jobs');
+      setSavedJobs(response.data.data.savedJobs);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching saved jobs:', error);
       setLoading(false);
     }
   };
 
-  const removeSavedJob = (jobId: string) => {
-    setSavedJobs(savedJobs.filter(job => job.id !== jobId));
-    setSelectedJobs(selectedJobs.filter(id => id !== jobId));
+  const removeSavedJob = async (jobId: string) => {
+    try {
+      await api.delete(`/users/saved-jobs/${jobId}`);
+      setSavedJobs(savedJobs.filter(job => job.id !== jobId));
+      setSelectedJobs(selectedJobs.filter(id => id !== jobId));
+    } catch (error) {
+      console.error('Error removing saved job:', error);
+    }
   };
 
   const removeMultipleSavedJobs = () => {
@@ -215,9 +121,32 @@ export default function SavedJobs() {
     setSelectedJobs([]);
   };
 
-  const applyToJob = (job: SavedJob) => {
-    // TODO: Implement apply functionality
-    console.log('Applying to job:', job.title);
+  const applyToJob = async (job: SavedJob) => {
+    try {
+      // First get user's resumes
+      const resumesResponse = await api.get('/resumes');
+      const resumes = resumesResponse.data.data.resumes;
+      
+      if (resumes.length === 0) {
+        alert('Please create a resume first before applying');
+        navigate('/applicant/resumes');
+        return;
+      }
+      
+      // For now, let's use the default resume or the first one
+      const defaultResume = resumes.find((r: any) => r.isDefault) || resumes[0];
+      
+      // Apply with the selected resume
+      await api.post(`/applications/${job.jobId}`, {
+        resumeId: defaultResume.id,
+        coverLetter: 'I am interested in this position and would like to apply.'
+      });
+      
+      // Mark as applied in the UI
+      alert(`Applied to ${job.title} successfully!`);
+    } catch (error) {
+      console.error('Error applying to job:', error);
+    }
   };
 
   const shareJob = (job: SavedJob) => {

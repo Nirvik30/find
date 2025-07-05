@@ -1,8 +1,14 @@
+// Simplify the typing approach to avoid complex type assertions
 import { Request, Response } from 'express';
 import Job, { IJob } from '../models/jobModel';
 import User from '../models/userModel';
 import Company from '../models/companyModel';
 import mongoose from 'mongoose';
+
+// Define an extended request type for all functions
+interface AuthRequest extends Request {
+  user?: { id: string; role?: string; name?: string; };
+}
 
 // Get all jobs (with filtering, sorting, pagination)
 export const getJobs = async (req: Request, res: Response): Promise<void> => {
@@ -26,7 +32,7 @@ export const getJobs = async (req: Request, res: Response): Promise<void> => {
     queryStr = queryStr.replace(/\b(gt|gte|lt|lte|in)\b/g, match => `$${match}`);
     
     // Start building query
-    let query = Job.find(JSON.parse(queryStr));
+    let query: any = Job.find(JSON.parse(queryStr));
     
     // Handle search functionality
     if (req.query.search) {
@@ -125,7 +131,7 @@ export const getJob = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Create job
-export const createJob = async (req: Request, res: Response): Promise<void> => {
+export const createJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Ensure user is a recruiter
     const user = await User.findById(req.user?.id);
@@ -172,7 +178,7 @@ export const createJob = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Update job
-export const updateJob = async (req: Request, res: Response): Promise<void> => {
+export const updateJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Find job
     const job = await Job.findById(req.params.id);
@@ -216,7 +222,7 @@ export const updateJob = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Delete job
-export const deleteJob = async (req: Request, res: Response): Promise<void> => {
+export const deleteJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Find job
     const job = await Job.findById(req.params.id);
@@ -253,11 +259,73 @@ export const deleteJob = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Get recruiter jobs
-export const getRecruiterJobs = async (req: Request, res: Response): Promise<void> => {
+export const getRecruiterJobs = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const jobs = await Job.find({ recruiterId: req.user?.id }).sort('-postedDate');
     
     res.status(200).json({
       status: 'success',
       results: jobs.length,
-      data:
+      data: {
+        jobs
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to retrieve recruiter jobs'
+    });
+  }
+};
+
+// Get job statistics for dashboard
+export const getJobStats = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    // Get counts by status
+    const statusStats = await Job.aggregate([
+      { $match: { recruiterId: new mongoose.Types.ObjectId(req.user?.id) } },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    // Format the results into a more usable structure
+    const stats = {
+      total: 0,
+      active: 0,
+      draft: 0,
+      closed: 0,
+      filled: 0
+    };
+
+    statusStats.forEach((stat: any) => {
+      stats[stat._id as keyof typeof stats] = stat.count;
+      stats.total += stat.count;
+    });
+
+    // Get application stats
+    const applicationStats = await Job.aggregate([
+      { $match: { recruiterId: new mongoose.Types.ObjectId(req.user?.id) } },
+      { $group: { _id: null, totalApplications: { $sum: '$applications' } } }
+    ]);
+
+    const totalApplications = applicationStats.length > 0 ? applicationStats[0].totalApplications : 0;
+
+    // Get recent jobs
+    const recentJobs = await Job.find({ recruiterId: req.user?.id })
+      .sort({ postedDate: -1 })
+      .limit(5);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        stats,
+        totalApplications,
+        recentJobs
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to retrieve job statistics'
+    });
+  }
+};

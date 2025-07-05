@@ -42,6 +42,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 // Types
 interface Candidate {
@@ -110,202 +111,16 @@ export default function ApplicationsList() {
   const fetchCandidates = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setCandidates([
-          {
-            id: '1',
-            name: 'John Doe',
-            email: 'john.doe@example.com',
-            phone: '+1 (555) 123-4567',
-            avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-            location: 'San Francisco, CA',
-            matchScore: 92,
-            starred: true,
-            status: 'interview',
-            appliedDate: '2024-04-05T15:30:00',
-            lastActivity: '2024-04-10T09:15:00',
-            resumeUrl: 'https://example.com/resume/john-doe',
-            coverLetterUrl: 'https://example.com/cover-letter/john-doe',
-            jobId: '1',
-            jobTitle: 'Senior Frontend Developer',
-            company: 'TechCorp',
-            jobMatch: 95,
-            skills: ['React', 'TypeScript', 'Node.js', 'GraphQL', 'AWS'],
-            experience: '5+ years in frontend development',
-            education: 'BS Computer Science, Stanford University',
-            notes: [
-              'Great communication skills, impressed during initial review.',
-              'Has experience with our tech stack.'
-            ],
-            interviews: [
-              {
-                id: 'int1',
-                candidateId: '1',
-                type: 'video',
-                date: '2024-04-15T14:00:00',
-                duration: 60,
-                interviewers: ['Sarah Johnson', 'Mike Chen'],
-                status: 'scheduled'
-              }
-            ]
-          },
-          {
-            id: '2',
-            name: 'Sarah Johnson',
-            email: 'sarah.j@example.com',
-            avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-            location: 'New York, NY',
-            matchScore: 88,
-            starred: false,
-            status: 'reviewing',
-            appliedDate: '2024-04-07T10:15:00',
-            lastActivity: '2024-04-09T11:30:00',
-            resumeUrl: 'https://example.com/resume/sarah-j',
-            jobId: '2',
-            jobTitle: 'UI/UX Designer',
-            company: 'TechCorp',
-            jobMatch: 90,
-            skills: ['Figma', 'Adobe XD', 'UI Design', 'User Research', 'Prototyping'],
-            experience: '4 years in UX/UI design',
-            education: 'MFA Design, Parsons School of Design'
-          },
-          {
-            id: '3',
-            name: 'Michael Chen',
-            email: 'mchen@example.com',
-            phone: '+1 (555) 987-6543',
-            avatar: 'https://randomuser.me/api/portraits/men/52.jpg',
-            location: 'Remote',
-            matchScore: 85,
-            starred: true,
-            status: 'offer',
-            appliedDate: '2024-04-01T09:45:00',
-            lastActivity: '2024-04-08T15:20:00',
-            resumeUrl: 'https://example.com/resume/michael-chen',
-            jobId: '3',
-            jobTitle: 'React Developer',
-            company: 'TechCorp',
-            jobMatch: 85,
-            skills: ['React', 'JavaScript', 'CSS', 'Redux', 'Testing'],
-            experience: '3 years at StartupXYZ',
-            education: 'BS Computer Engineering, MIT',
-            interviews: [
-              {
-                id: 'int2',
-                candidateId: '3',
-                type: 'video',
-                date: '2024-04-05T11:00:00',
-                duration: 60,
-                interviewers: ['David Wilson', 'Emily Clark'],
-                status: 'completed',
-                feedback: 'Strong technical skills. Good culture fit.',
-                rating: 4
-              },
-              {
-                id: 'int3',
-                candidateId: '3',
-                type: 'in-person',
-                date: '2024-04-08T13:30:00',
-                duration: 90,
-                interviewers: ['John Smith', 'Laura Johnson', 'Kevin Lee'],
-                status: 'completed',
-                feedback: 'Excellent problem-solving skills. Made an offer.',
-                rating: 5
-              }
-            ]
-          },
-          {
-            id: '4',
-            name: 'Emily Davis',
-            email: 'emily.d@example.com',
-            location: 'Chicago, IL',
-            matchScore: 78,
-            starred: false,
-            status: 'rejected',
-            appliedDate: '2024-03-29T14:20:00',
-            lastActivity: '2024-04-06T10:05:00',
-            resumeUrl: 'https://example.com/resume/emily-d',
-            jobId: '4',
-            jobTitle: 'Backend Developer',
-            company: 'TechCorp',
-            jobMatch: 72,
-            skills: ['Python', 'Django', 'SQL', 'Docker', 'AWS'],
-            experience: '2 years at TechStartup',
-            education: 'MS Computer Science, University of Illinois',
-            notes: [
-              'Good technical skills but lacks experience in our specific stack.',
-              'Rejected due to experience level mismatch.'
-            ]
-          },
-          {
-            id: '5',
-            name: 'David Wilson',
-            email: 'dwilson@example.com',
-            phone: '+1 (555) 444-5555',
-            avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-            location: 'Austin, TX',
-            matchScore: 95,
-            starred: false,
-            status: 'pending',
-            appliedDate: '2024-04-09T16:45:00',
-            resumeUrl: 'https://example.com/resume/david-w',
-            coverLetterUrl: 'https://example.com/cover-letter/david-w',
-            jobId: '5',
-            jobTitle: 'DevOps Engineer',
-            company: 'TechCorp',
-            jobMatch: 90,
-            skills: ['Kubernetes', 'AWS', 'CI/CD', 'Docker', 'Terraform'],
-            experience: '6 years in DevOps and infrastructure',
-            education: 'BS Computer Science, UT Austin'
-          },
-          {
-            id: '6',
-            name: 'Jennifer Lee',
-            email: 'jennifer.l@example.com',
-            avatar: 'https://randomuser.me/api/portraits/women/22.jpg',
-            location: 'Seattle, WA',
-            matchScore: 91,
-            starred: false,
-            status: 'accepted',
-            appliedDate: '2024-03-25T11:30:00',
-            lastActivity: '2024-04-07T14:45:00',
-            resumeUrl: 'https://example.com/resume/jennifer-l',
-            jobId: '1',
-            jobTitle: 'Senior Frontend Developer',
-            company: 'TechCorp',
-            jobMatch: 92,
-            skills: ['React', 'TypeScript', 'JavaScript', 'HTML/CSS', 'Redux'],
-            experience: '7 years in frontend development',
-            education: 'BS Computer Science, University of Washington',
-            interviews: [
-              {
-                id: 'int4',
-                candidateId: '6',
-                type: 'video',
-                date: '2024-03-28T13:00:00',
-                duration: 60,
-                interviewers: ['Mike Peterson', 'Sarah Johnson'],
-                status: 'completed',
-                feedback: 'Excellent technical skills and communication.',
-                rating: 5
-              },
-              {
-                id: 'int5',
-                candidateId: '6',
-                type: 'in-person',
-                date: '2024-04-02T10:00:00',
-                duration: 120,
-                interviewers: ['John Smith', 'David Wilson', 'Emily Clark'],
-                status: 'completed',
-                feedback: 'Perfect fit for the role. Made an offer which was accepted.',
-                rating: 5
-              }
-            ]
-          }
-        ]);
-        setLoading(false);
-      }, 1000);
+      
+      // Build query parameters
+      const params: any = {};
+      if (jobFilter) params.jobId = jobFilter;
+      if (statusFilter) params.status = statusFilter;
+      if (searchTerm) params.search = searchTerm;
+      
+      const response = await api.get('/applications/candidates', { params });
+      setCandidates(response.data.data.candidates);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching candidates:', error);
       setLoading(false);
@@ -313,16 +128,17 @@ export default function ApplicationsList() {
   };
 
   const fetchJobs = async () => {
-    // TODO: Replace with actual API call
-    setTimeout(() => {
-      setJobs([
-        { id: '1', title: 'Senior Frontend Developer', applications: 47 },
-        { id: '2', title: 'UI/UX Designer', applications: 32 },
-        { id: '3', title: 'React Developer', applications: 23 },
-        { id: '4', title: 'Backend Developer', applications: 35 },
-        { id: '5', title: 'DevOps Engineer', applications: 10 }
-      ]);
-    }, 500);
+    try {
+      const response = await api.get('/jobs/recruiter/dashboard');
+      const jobsList = response.data.data.jobs.map((job: any) => ({
+        id: job._id,
+        title: job.title,
+        applications: job.applications
+      }));
+      setJobs(jobsList);
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+    }
   };
 
   const toggleStarCandidate = (id: string) => {
@@ -335,14 +151,18 @@ export default function ApplicationsList() {
     );
   };
 
-  const updateCandidateStatus = (id: string, status: Candidate['status']) => {
-    setCandidates(prev => 
-      prev.map(candidate => 
-        candidate.id === id 
-          ? { ...candidate, status, lastActivity: new Date().toISOString() } 
-          : candidate
-      )
-    );
+  const updateCandidateStatus = async (applicationId: string, status: string) => {
+    try {
+      await api.patch(`/applications/${applicationId}/status`, { status });
+      // Update the local state to reflect the change
+      setCandidates(
+        candidates.map((candidate) =>
+          candidate.id === applicationId ? { ...candidate, status } : candidate
+        )
+      );
+    } catch (error) {
+      console.error('Error updating application status:', error);
+    }
   };
 
   const getStatusColor = (status: string) => {

@@ -31,6 +31,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api'; // Import the API module
 
 interface JobPost {
   id?: string;
@@ -97,44 +98,9 @@ export default function JobPostForm() {
   const fetchJobPost = async (jobId: string) => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        setJobPost({
-          id: jobId,
-          title: 'Senior Frontend Developer',
-          company: user?.companyName || 'TechCorp Innovation',
-          location: 'San Francisco, CA',
-          type: 'Full-time',
-          experience: '3-5 years',
-          salary: '$120,000 - $160,000',
-          description: 'We are looking for a passionate Senior Frontend Developer to join our growing team and help build cutting-edge web applications that serve millions of users worldwide.',
-          responsibilities: [
-            'Develop and maintain high-quality web applications using React and TypeScript',
-            'Collaborate with UX/UI designers to implement pixel-perfect designs',
-            'Write clean, maintainable, and well-documented code',
-            'Participate in code reviews and provide constructive feedback'
-          ],
-          requirements: [
-            '5+ years of experience in frontend development',
-            'Expert knowledge of React.js and TypeScript',
-            'Strong understanding of HTML5, CSS3, and modern JavaScript (ES6+)',
-            'Experience with state management libraries (Redux, Zustand, etc.)'
-          ],
-          benefits: [
-            'Competitive salary and equity package',
-            'Comprehensive health, dental, and vision insurance',
-            'Flexible work arrangements and remote work options',
-            'Professional development budget'
-          ],
-          skills: ['React', 'TypeScript', 'JavaScript', 'HTML/CSS', 'Redux'],
-          applicationDeadline: '2024-05-30',
-          status: 'active',
-          isUrgent: true,
-          postedDate: '2024-03-15',
-          updatedDate: '2024-03-15'
-        });
-        setLoading(false);
-      }, 1000);
+      const response = await api.get(`/jobs/${jobId}`);
+      setJobPost(response.data.data.job);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching job post:', error);
       setLoading(false);
@@ -167,17 +133,18 @@ export default function JobPostForm() {
       
       const jobToSave = {
         ...jobPost,
-        status: publish ? 'active' : jobPost.status,
-        updatedDate: new Date().toISOString(),
-        postedDate: jobPost.postedDate || new Date().toISOString()
+        status: publish ? 'active' : jobPost.status
       };
       
-      // TODO: Replace with actual API call
-      setTimeout(() => {
-        console.log('Saving job post:', jobToSave);
-        setSaving(false);
-        navigate('/recruiter/job-posts');
-      }, 1500);
+      let response;
+      if (isEditing) {
+        response = await api.patch(`/jobs/${jobPost.id}`, jobToSave);
+      } else {
+        response = await api.post('/jobs', jobToSave);
+      }
+      
+      setSaving(false);
+      navigate('/recruiter/job-posts');
     } catch (error) {
       console.error('Error saving job post:', error);
       setSaving(false);

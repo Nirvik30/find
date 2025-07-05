@@ -46,6 +46,7 @@ import {
   Camera
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface CompanyProfile {
   id: string;
@@ -209,11 +210,9 @@ export default function CompanyProfile() {
   const fetchCompanyData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // For now, we're just using the default values set in state
-      setTimeout(() => {
-        setLoading(false);
-      }, 1000);
+      const response = await api.get('/companies/profile');
+      setCompanyData(response.data.data.company);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching company data:', error);
       setLoading(false);
@@ -581,7 +580,7 @@ export default function CompanyProfile() {
                   <div className="flex items-center gap-3">
                     <Globe className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-muted-foreground">Website</p>
+                      <p className="text-sm text-muted-foreground mb-2">Website</p>
                       <a 
                         href={companyData.website} 
                         target="_blank" 
