@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Form validation schema matching your backend requirements
+// Update the form validation schema
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters' }),
   email: z.string().email({ message: 'Please enter a valid email address' }),
@@ -40,9 +40,18 @@ const formSchema = z.object({
   role: z.enum(['applicant', 'recruiter'], {
     required_error: 'Please select a role'
   }),
+  companyName: z.string().optional(), // Add this
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
+}).refine((data) => {
+  if (data.role === 'recruiter' && !data.companyName?.trim()) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Company name is required for recruiters",
+  path: ["companyName"],
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -50,6 +59,7 @@ type FormValues = z.infer<typeof formSchema>;
 export function RegisterForm() {
   const { register, error, clearError } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<string>('applicant');
   const navigate = useNavigate();
 
   const form = useForm<FormValues>({
@@ -60,6 +70,7 @@ export function RegisterForm() {
       password: '',
       confirmPassword: '',
       role: 'applicant',
+      companyName: '', // Add this
     },
   });
 
@@ -72,10 +83,10 @@ export function RegisterForm() {
         values.name,
         values.email,
         values.password,
-        values.role
+        values.role,
+        values.companyName // Pass company name
       );
       
-      // Show success message or redirect
       navigate('/login');
     } catch (err) {
       console.error('Registration failed:', err);
@@ -84,6 +95,9 @@ export function RegisterForm() {
     }
   };
 
+  // Add this to watch role changes
+  const watchedRole = form.watch('role');
+  
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -175,6 +189,22 @@ export function RegisterForm() {
                 </FormItem>
               )}
             />
+            
+            {watchedRole === 'recruiter' && (
+              <FormField
+                control={form.control}
+                name="companyName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Company Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter your company name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             
             {error && (
               <div className="text-sm text-destructive">{error}</div>

@@ -66,16 +66,34 @@ export default function JobBrowse() {
   const fetchJobs = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/jobs', {
-        params: {
-          search: searchTerm,
-          location: locationFilter,
-          type: typeFilter !== 'all' ? typeFilter : undefined,
-          experience: experienceFilter !== 'all' ? experienceFilter : undefined
-        }
-      });
+      const params: any = {};
       
-      setJobs(response.data.data.jobs);
+      if (searchTerm) params.search = searchTerm;
+      if (locationFilter) params.location = locationFilter;
+      if (typeFilter && typeFilter !== 'all') params.type = typeFilter;
+      if (experienceFilter && experienceFilter !== 'all') params.experience = experienceFilter;
+      
+      const response = await api.get('/jobs', { params });
+      const jobsData = response.data.data.jobs;
+      
+      // Map the backend data to frontend format
+      const mappedJobs = jobsData.map((job: any) => ({
+        id: job._id,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        type: job.type,
+        experience: job.experience,
+        salary: job.salary || 'Salary not specified',
+        description: job.description,
+        requirements: job.requirements || [],
+        benefits: job.benefits || [],
+        postedDate: job.postedDate,
+        applicants: job.applications || 0,
+        saved: false // This should come from user's saved jobs
+      }));
+      
+      setJobs(mappedJobs);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching jobs:', error);

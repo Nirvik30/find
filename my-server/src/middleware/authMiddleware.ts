@@ -10,6 +10,9 @@ interface AuthRequest extends Request {
     id: string; 
     role?: string; 
     name?: string;
+    email?: string;
+    companyId?: any;
+    companyName?: string;
   };
 }
 
@@ -34,11 +37,11 @@ export const protect = async (
       return;
     }
 
-    // Verify token with proper typing
+    // Verify token
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
     
-    // Get user from token
-    const user = await User.findById(decoded.id);
+    // Get user from token and include role
+    const user = await User.findById(decoded.id).select('name email role companyId companyName');
     if (!user) {
       res.status(404).json({
         status: 'fail',
@@ -47,10 +50,14 @@ export const protect = async (
       return;
     }
 
-    // Add user to request object
+    // Add user to request object with ALL necessary fields
     req.user = {
       id: String(user._id),
-      role: user.role
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      companyId: user.companyId,
+      companyName: user.companyName
     };
     
     next();
@@ -65,14 +72,24 @@ export const protect = async (
 // Middleware to restrict access based on role
 export const restrictTo = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    // Check if user exists first, then check role
-    if (!req.user || !req.user.role || !roles.includes(req.user.role)) {
-      res.status(403).json({
+    // Check if user exists and is authenticated
+    if (!req.user) {
+      res.status(401).json({
         status: 'fail',
-        message: 'You do not have permission to perform this action'
+        message: 'Authentication required'
       });
       return;
     }
+
+    // Check if user has the required role
+    if (!req.user.role || !roles.includes(req.user.role)) {
+      res.status(403).json({
+        status: 'fail',
+        message: `Access denied. Required role: ${roles.join(' or ')}, but user role is: ${req.user.role || 'undefined'}`
+      });
+      return;
+    }
+    
     next();
   };
 };

@@ -1,21 +1,31 @@
 import express from 'express';
-import * as jobController from '../controllers/jobController';
+import {
+  getAllJobs,
+  getJob,
+  createJob,
+  updateJob,
+  deleteJob,
+  getRecruiterJobs,
+  getJobStats
+} from '../controllers/jobController';
 import { protect, restrictTo } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// Public routes
-router.get('/', jobController.getJobs);
-router.get('/:id', jobController.getJob);
+// Public routes (no authentication required)
+router.get('/', getAllJobs); // For job search by applicants
+router.get('/:id', getJob); // Get single job details
 
-// Protected routes (require authentication)
+// Apply protection middleware to all routes below
 router.use(protect);
 
-// Recruiter routes
-router.get('/recruiter/dashboard', restrictTo('recruiter'), jobController.getRecruiterJobs);
-router.get('/recruiter/stats', restrictTo('recruiter'), jobController.getJobStats);
-router.post('/', restrictTo('recruiter'), jobController.createJob);
-router.patch('/:id', restrictTo('recruiter'), jobController.updateJob);
-router.delete('/:id', restrictTo('recruiter'), jobController.deleteJob);
+// Recruiter-only routes
+router.post('/', restrictTo('recruiter'), createJob);
+router.patch('/:id', restrictTo('recruiter'), updateJob);
+router.delete('/:id', restrictTo('recruiter'), deleteJob);
+
+// Recruiter dashboard routes
+router.get('/recruiter/dashboard', restrictTo('recruiter'), getRecruiterJobs);
+router.get('/stats/dashboard', restrictTo('recruiter'), getJobStats);
 
 export default router;

@@ -40,7 +40,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, role: string) => Promise<void>;
+  register: (name: string, email: string, password: string, role: string, companyName?: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   clearError: () => void;
@@ -89,9 +89,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
         
-        setUser(response.data.data.user);
+        // Ensure user data includes role
+        const userData = {
+          ...response.data.data.user,
+          role: response.data.data.user.role // Explicitly ensure role is included
+        };
+        
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        setUser(userData);
         setIsAuthenticated(true);
       }
     } catch (err: any) {
@@ -103,12 +110,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // Register function - matches your backend authController.register
-  const register = async (name: string, email: string, password: string, role: string) => {
+  const register = async (name: string, email: string, password: string, role: string, companyName?: string) => {
     try {
       setLoading(true);
       setError(null);
       
-      await api.post('/auth/register', { name, email, password, role });
+      const payload: any = { name, email, password, role };
+      if (role === 'recruiter' && companyName) {
+        payload.companyName = companyName;
+      }
+      
+      await api.post('/auth/register', payload);
       
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to register');

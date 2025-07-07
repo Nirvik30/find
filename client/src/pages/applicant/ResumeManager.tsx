@@ -127,7 +127,21 @@ export default function ResumeManager() {
     try {
       setLoading(true);
       const response = await api.get('/resumes');
-      setResumes(response.data.data.resumes);
+      const resumesFromApi = response.data.data.resumes;
+      
+      // Map the backend data to frontend format
+      const mappedResumes = resumesFromApi.map((resume: any) => ({
+        id: resume._id,
+        name: resume.name,
+        template: resume.template,
+        lastModified: resume.updatedAt ? new Date(resume.updatedAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        isDefault: resume.isDefault,
+        status: resume.status,
+        downloadCount: resume.downloadCount,
+        viewCount: resume.viewCount
+      }));
+      
+      setResumes(mappedResumes);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching resumes:', error);
@@ -171,81 +185,41 @@ export default function ResumeManager() {
     setActiveView('edit');
   };
 
-  const editResume = (resume: Resume) => {
-    setSelectedResume(resume);
-    // Load resume data - in real app, fetch from API
-    setResumeData({
-      personalInfo: {
-        name: user?.name || 'John Doe',
-        email: user?.email || 'john@example.com',
-        phone: '+1 (555) 123-4567',
-        location: 'San Francisco, CA',
-        title: 'Senior Frontend Developer',
-        summary: 'Experienced developer with 5+ years in React and TypeScript development.',
-        website: 'https://johndoe.dev',
-        linkedin: 'https://linkedin.com/in/johndoe',
-        github: 'https://github.com/johndoe'
-      },
-      experience: [
-        {
-          id: '1',
-          company: 'TechCorp Inc.',
-          position: 'Senior Frontend Developer',
-          startDate: '2022-01',
-          endDate: '',
-          current: true,
-          description: 'Leading frontend development for web applications using React, TypeScript, and modern tools.',
-          achievements: [
-            'Improved application performance by 40%',
-            'Led team of 4 developers',
-            'Implemented CI/CD pipeline'
-          ]
-        }
-      ],
-      education: [
-        {
-          id: '1',
-          institution: 'University of California',
-          degree: 'Bachelor of Science',
-          field: 'Computer Science',
-          startDate: '2016-09',
-          endDate: '2020-05',
-          gpa: '3.8'
-        }
-      ],
-      skills: [
-        {
-          category: 'Frontend',
-          items: ['React', 'TypeScript', 'JavaScript', 'HTML/CSS']
+  const editResume = async (resume: Resume) => {
+    try {
+      setSelectedResume(resume);
+      setLoading(true);
+      
+      // Fetch the actual resume data from the backend
+      const response = await api.get(`/resumes/${resume.id}`);
+      const resumeFromApi = response.data.data.resume;
+      
+      // Set the resume data from the API
+      setResumeData({
+        personalInfo: {
+          name: resumeFromApi.personalInfo?.name || user?.name || '',
+          email: resumeFromApi.personalInfo?.email || user?.email || '',
+          phone: resumeFromApi.personalInfo?.phone || '',
+          location: resumeFromApi.personalInfo?.location || '',
+          title: resumeFromApi.personalInfo?.title || '',
+          summary: resumeFromApi.personalInfo?.summary || '',
+          website: resumeFromApi.personalInfo?.website || '',
+          linkedin: resumeFromApi.personalInfo?.linkedin || '',
+          github: resumeFromApi.personalInfo?.github || ''
         },
-        {
-          category: 'Backend',
-          items: ['Node.js', 'Python', 'SQL', 'MongoDB']
-        }
-      ],
-      projects: [
-        {
-          id: '1',
-          name: 'E-commerce Platform',
-          description: 'Full-stack e-commerce application built with React and Node.js',
-          technologies: ['React', 'Node.js', 'MongoDB', 'Stripe'],
-          link: 'https://github.com/johndoe/ecommerce',
-          startDate: '2023-01',
-          endDate: '2023-06'
-        }
-      ],
-      certifications: [
-        {
-          id: '1',
-          name: 'AWS Certified Developer',
-          issuer: 'Amazon Web Services',
-          date: '2023-03',
-          expiryDate: '2026-03',
-          credentialId: 'AWS-123456'
-        }
-      ]
-    });
-    setActiveView('edit');
+        experience: resumeFromApi.experience || [],
+        education: resumeFromApi.education || [],
+        skills: resumeFromApi.skills || [],
+        projects: resumeFromApi.projects || [],
+        certifications: resumeFromApi.certifications || []
+      });
+      
+      setActiveView('edit');
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading resume:', error);
+      setLoading(false);
+    }
   };
 
   const duplicateResume = (resume: Resume) => {
@@ -303,14 +277,47 @@ export default function ResumeManager() {
     }
   };
 
-  const previewResume = (resume: Resume) => {
-    setSelectedResume(resume);
-    setResumes(resumes.map(r => 
-      r.id === resume.id 
-        ? { ...r, viewCount: r.viewCount + 1 }
-        : r
-    ));
-    setActiveView('preview');
+  const previewResume = async (resume: Resume) => {
+    try {
+      setSelectedResume(resume);
+      setLoading(true);
+      
+      // Fetch the actual resume data for preview
+      const response = await api.get(`/resumes/${resume.id}`);
+      const resumeFromApi = response.data.data.resume;
+      
+      setResumeData({
+        personalInfo: {
+          name: resumeFromApi.personalInfo?.name || 'Name not provided',
+          email: resumeFromApi.personalInfo?.email || 'Email not provided',
+          phone: resumeFromApi.personalInfo?.phone || '',
+          location: resumeFromApi.personalInfo?.location || '',
+          title: resumeFromApi.personalInfo?.title || 'Title not provided',
+          summary: resumeFromApi.personalInfo?.summary || 'Summary not provided',
+          website: resumeFromApi.personalInfo?.website || '',
+          linkedin: resumeFromApi.personalInfo?.linkedin || '',
+          github: resumeFromApi.personalInfo?.github || ''
+        },
+        experience: resumeFromApi.experience || [],
+        education: resumeFromApi.education || [],
+        skills: resumeFromApi.skills || [],
+        projects: resumeFromApi.projects || [],
+        certifications: resumeFromApi.certifications || []
+      });
+      
+      // Update view count
+      setResumes(resumes.map(r => 
+        r.id === resume.id 
+          ? { ...r, viewCount: r.viewCount + 1 }
+          : r
+      ));
+      
+      setActiveView('preview');
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading resume for preview:', error);
+      setLoading(false);
+    }
   };
 
   const saveResume = async () => {
@@ -734,6 +741,16 @@ export default function ResumeManager() {
                           ))}
                         </div>
                       )}
+                      {resumeData.skills.length > 0 && (
+                        <div className="border-t pt-2">
+                          <h2 className="text-sm font-bold mb-1">Skills</h2>
+                          {resumeData.skills.slice(0, 2).map((skillGroup, index) => (
+                            <p key={index} className="text-xs text-gray-600 mb-1">
+                              {skillGroup.category}: {skillGroup.items.slice(0, 3).join(', ')}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <Button 
@@ -751,7 +768,7 @@ export default function ResumeManager() {
         )}
 
         {/* Preview View */}
-        {activeView === 'preview' && selectedResume && (
+        {activeView === 'preview' && selectedResume && resumeData && (
           <div className="max-w-4xl mx-auto">
             <Card>
               <CardHeader>
@@ -773,58 +790,108 @@ export default function ResumeManager() {
               </CardHeader>
               <CardContent>
                 <div className="aspect-[3/4] border border-border rounded-lg bg-white p-8 text-black overflow-auto">
-                  {/* Full Resume Preview */}
+                  {/* Use actual resume data instead of hardcoded data */}
                   <div className="space-y-6">
                     <div className="text-center border-b pb-4">
-                      <h1 className="text-3xl font-bold mb-2">John Doe</h1>
-                      <p className="text-xl text-gray-600 mb-2">Senior Frontend Developer</p>
+                      <h1 className="text-3xl font-bold mb-2">{resumeData.personalInfo.name}</h1>
+                      <p className="text-xl text-gray-600 mb-2">{resumeData.personalInfo.title}</p>
                       <p className="text-sm text-gray-500">
-                        john@example.com • +1 (555) 123-4567 • San Francisco, CA
+                        {resumeData.personalInfo.email} • {resumeData.personalInfo.phone} • {resumeData.personalInfo.location}
                       </p>
                     </div>
 
-                    <div>
-                      <h2 className="text-xl font-bold mb-3 text-gray-800">Professional Summary</h2>
-                      <p className="text-gray-700 leading-relaxed">
-                        Experienced developer with 5+ years in React and TypeScript development, 
-                        leading teams and building scalable web applications.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-bold mb-3 text-gray-800">Experience</h2>
-                      <div className="space-y-4">
-                        <div>
-                          <h3 className="text-lg font-semibold">Senior Frontend Developer</h3>
-                          <p className="text-gray-600 mb-1">TechCorp Inc. • 2022 - Present</p>
-                          <p className="text-gray-700 text-sm">
-                            Leading frontend development for web applications using React, TypeScript, and modern tools.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-bold mb-3 text-gray-800">Skills</h2>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <h4 className="font-semibold mb-2">Frontend</h4>
-                          <p className="text-sm text-gray-700">React, TypeScript, JavaScript, HTML/CSS</p>
-                        </div>
-                        <div>
-                          <h4 className="font-semibold mb-2">Backend</h4>
-                          <p className="text-sm text-gray-700">Node.js, Python, SQL, MongoDB</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-bold mb-3 text-gray-800">Education</h2>
+                    {resumeData.personalInfo.summary && (
                       <div>
-                        <h3 className="text-lg font-semibold">Bachelor of Science in Computer Science</h3>
-                        <p className="text-gray-600">University of California • 2016 - 2020 • GPA: 3.8</p>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Professional Summary</h2>
+                        <p className="text-gray-700 leading-relaxed">
+                          {resumeData.personalInfo.summary}
+                        </p>
                       </div>
-                    </div>
+                    )}
+
+                    {resumeData.experience.length > 0 && (
+                      <div>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Experience</h2>
+                        <div className="space-y-4">
+                          {resumeData.experience.map((exp, index) => (
+                            <div key={index}>
+                              <h3 className="text-lg font-semibold">{exp.position}</h3>
+                              <p className="text-gray-600 mb-1">
+                                {exp.company} • {exp.startDate} - {exp.current ? 'Present' : exp.endDate}
+                              </p>
+                              <p className="text-gray-700 text-sm mb-2">{exp.description}</p>
+                              {exp.achievements.length > 0 && (
+                                <ul className="list-disc list-inside text-sm text-gray-700">
+                                  {exp.achievements.map((achievement, i) => (
+                                    <li key={i}>{achievement}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {resumeData.skills.length > 0 && (
+                      <div>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Skills</h2>
+                        <div className="grid grid-cols-2 gap-4">
+                          {resumeData.skills.map((skillGroup, index) => (
+                            <div key={index}>
+                              <h4 className="font-semibold mb-2">{skillGroup.category}</h4>
+                              <p className="text-sm text-gray-700">{skillGroup.items.join(', ')}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {resumeData.education.length > 0 && (
+                      <div>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Education</h2>
+                        {resumeData.education.map((edu, index) => (
+                          <div key={index}>
+                            <h3 className="text-lg font-semibold">{edu.degree} in {edu.field}</h3>
+                            <p className="text-gray-600">
+                              {edu.institution} • {edu.startDate} - {edu.endDate}
+                              {edu.gpa && ` • GPA: ${edu.gpa}`}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {resumeData.projects.length > 0 && (
+                      <div>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Projects</h2>
+                        <div className="space-y-3">
+                          {resumeData.projects.map((project, index) => (
+                            <div key={index}>
+                              <h3 className="text-lg font-semibold">{project.name}</h3>
+                              <p className="text-gray-700 text-sm mb-1">{project.description}</p>
+                              <p className="text-gray-600 text-xs">
+                                Technologies: {project.technologies.join(', ')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {resumeData.certifications.length > 0 && (
+                      <div>
+                        <h2 className="text-xl font-bold mb-3 text-gray-800">Certifications</h2>
+                        <div className="space-y-2">
+                          {resumeData.certifications.map((cert, index) => (
+                            <div key={index}>
+                              <h3 className="font-semibold">{cert.name}</h3>
+                              <p className="text-gray-600 text-sm">{cert.issuer} • {cert.date}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

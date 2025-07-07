@@ -133,6 +133,15 @@ export const getJob = async (req: Request, res: Response): Promise<void> => {
 // Create job
 export const createJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Ensure user is authenticated
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     // Ensure user is a recruiter
     const user = await User.findById(req.user?.id);
     
@@ -143,26 +152,71 @@ export const createJob = async (req: AuthRequest, res: Response): Promise<void> 
       });
       return;
     }
-    
-    // Get company
-    if (!user.companyId) {
-      res.status(400).json({
-        status: 'fail',
-        message: 'Recruiter must be associated with a company'
+
+    // Get company - if no company exists, create a basic one
+    let companyId: any = user.companyId;
+    let companyName: string = user.companyName || '';
+
+    if (!companyId) {
+      // Create a basic company profile for the recruiter
+      const newCompany = await Company.create({
+        name: req.body.company || `${user.name}'s Company`,
+        industry: 'Technology', // Default industry
+        website: '',
+        location: req.body.location || 'Not specified',
+        size: '1-10',
+        about: 'Company profile to be updated',
+        founded: new Date().getFullYear().toString()
       });
-      return;
+
+      // Update user with company reference
+      const updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        {
+          companyId: newCompany._id,
+          companyName: newCompany.name
+        },
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        res.status(500).json({
+          status: 'error',
+          message: 'Failed to update user with company information'
+        });
+        return;
+      }
+
+      companyId = newCompany._id as mongoose.Types.ObjectId;
+      companyName = newCompany.name;
     }
-    
-    // Create job with recruiter and company info
+
+    // Create job with all required fields
     const jobData = {
-      ...req.body,
+      title: req.body.title,
+      description: req.body.description,
+      company: companyName,
+      companyId: companyId,
+      location: req.body.location,
+      type: req.body.type,
+      experience: req.body.experience,
+      salary: req.body.salary,
+      responsibilities: req.body.responsibilities || [],
+      requirements: req.body.requirements || [],
+      benefits: req.body.benefits || [],
+      skills: req.body.skills || [],
+      applicationDeadline: req.body.applicationDeadline,
+      isUrgent: req.body.isUrgent || false,
+      status: req.body.status || 'draft',
       recruiterId: user._id,
-      companyId: user.companyId,
-      company: user.companyName
+      postedDate: new Date(),
+      updatedDate: new Date(),
+      views: 0,
+      applications: 0
     };
-    
+
     const job = await Job.create(jobData);
-    
+
     res.status(201).json({
       status: 'success',
       data: {
@@ -170,9 +224,10 @@ export const createJob = async (req: AuthRequest, res: Response): Promise<void> 
       }
     });
   } catch (error: any) {
+    console.error('Job creation error:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message
+      message: error.message || 'Failed to create job'
     });
   }
 };
@@ -326,6 +381,71 @@ export const getJobStats = async (req: AuthRequest, res: Response): Promise<void
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to retrieve job statistics'
+    });
+  }
+};
+
+// Get all jobs with search and filters
+export const getAllJobs = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Build query object
+    const queryObj: any = { status: 'active' }; // Only show active jobs to applicants
+    
+    // Search functionality
+    if (req.query.search) {
+      const searchTerm = req.query.search as string;
+      queryObj.$or = [
+        { title: { $regex: searchTerm, $options: 'i' } },
+        { description: { $regex: searchTerm, $options: 'i' } },
+        { company: { $regex: searchTerm, $options: 'i' } },
+        { skills: { $in: [new RegExp(searchTerm, 'i')] } }
+      ];
+    }
+    
+    // Location filter
+    if (req.query.location) {
+      queryObj.location = { $regex: req.query.location as string, $options: 'i' };
+    }
+    
+    // Job type filter
+    if (req.query.type && req.query.type !== 'all') {
+      queryObj.type = req.query.type;
+    }
+    
+    // Experience filter
+    if (req.query.experience && req.query.experience !== 'all') {
+      const experienceLevel = req.query.experience as string;
+      queryObj.experience = { $regex: experienceLevel, $options: 'i' };
+    }
+    
+    // Execute query with pagination
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    
+    const jobs = await Job.find(queryObj)
+      .sort('-postedDate')
+      .skip(skip)
+      .limit(limit)
+      .populate('companyId', 'name logo industry')
+      .select('-recruiterId'); // Don't expose recruiter ID to applicants
+    
+    const total = await Job.countDocuments(queryObj);
+    
+    res.status(200).json({
+      status: 'success',
+      results: jobs.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      data: {
+        jobs
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to retrieve jobs'
     });
   }
 };

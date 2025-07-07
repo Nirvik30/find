@@ -1,6 +1,6 @@
 // filepath: c:\Users\DELL\Desktop\jobfinder\my-server\src\controllers\authController.ts
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken'; // Simplify this import
+import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User, { IUser } from '../models/userModel';
 import Company from '../models/companyModel';
@@ -11,59 +11,57 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-// Replace the signToken function with this:
+// Replace the signToken function in authController.ts (line 15-17):
 const signToken = (id: string): string => {
-  // @ts-ignore
-  return jwt.sign({ id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign({ id }, JWT_SECRET as jwt.Secret, { 
+    expiresIn: JWT_EXPIRES_IN 
+  } as jwt.SignOptions);
 };
+
+// AuthRequest interface
+interface AuthRequest extends Request {
+  user?: { 
+    id: string; 
+    role?: string; 
+    name?: string;
+    email?: string;
+    companyId?: any;
+    companyName?: string;
+  };
+}
 
 // Register user
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password, role, companyName } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      res.status(400).json({ 
-        status: 'fail', 
-        message: 'Email already in use' 
+    // Validate role
+    if (!['applicant', 'recruiter'].includes(role)) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Invalid role. Must be either applicant or recruiter'
       });
       return;
     }
 
-    let companyId;
-
-    // If recruiter, create or find company
-    if (role === 'recruiter') {
-      if (!companyName) {
-        res.status(400).json({
-          status: 'fail',
-          message: 'Company name is required for recruiters'
-        });
-        return;
-      }
-
-      // Check if company already exists
-      let company = await Company.findOne({ name: companyName });
-
-      // If not, create a new company
-      if (!company) {
-        company = await Company.create({
-          name: companyName,
-          industry: 'Technology',
-          website: `https://${companyName.toLowerCase().replace(/\s/g, '')}.com`,
-          location: 'Remote',
-          size: '1-50',
-          about: `${companyName} is a growing company...`,
-        });
-      }
-
-      companyId = company._id;
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'User already exists with this email'
+      });
+      return;
     }
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(20).toString('hex');
+    // If recruiter, validate companyName
+    if (role === 'recruiter' && !companyName) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Company name is required for recruiters'
+      });
+      return;
+    }
 
     // Create user
     const user = await User.create({
@@ -71,17 +69,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       email,
       password,
       role,
-      companyName,
-      companyId,
-      emailVerificationToken: verificationToken,
-      isEmailVerified: false // In production, this would be false until verified
-    }) as IUser & { _id: mongoose.Types.ObjectId };
+      companyName: role === 'recruiter' ? companyName : undefined
+    });
 
-    // In a production app, you would send an email with the verification token
-    console.log(`Verification URL: ${CLIENT_URL}/verify-email?token=${verificationToken}`);
-
-    // Generate JWT
-    const token = signToken(user._id.toString());
+    // Fixed: Proper type handling for _id
+    const token = signToken(String(user._id));
 
     res.status(201).json({
       status: 'success',
@@ -92,9 +84,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
           name: user.name,
           email: user.email,
           role: user.role,
-          companyName: user.companyName,
-          companyId: user.companyId,
-          isEmailVerified: user.isEmailVerified
+          companyName: user.companyName
         }
       }
     });
@@ -121,7 +111,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check if user exists & password is correct
-    const user = await User.findOne({ email }).select('+password') as (IUser & { _id: mongoose.Types.ObjectId }) | null;
+    const user = await User.findOne({ email }).select('+password');
     
     if (!user || !(await user.comparePassword(password))) {
       res.status(401).json({
@@ -131,8 +121,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate token
-    const token = signToken(user._id.toString());
+    // Fixed: Proper type handling for _id
+    const token = signToken(String(user._id));
 
     res.status(200).json({
       status: 'success',
@@ -159,19 +149,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// Add this to authController.ts after imports
-interface AuthRequest extends Request {
-  user?: { 
-    id: string; 
-    role?: string; 
-    name?: string;
-  };
-}
-
 // Get current user
 export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Now req.user is properly typed through global declaration
     const user = await User.findById(req.user?.id);
     
     if (!user) {
@@ -301,7 +281,7 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     const user = await User.findOne({
       resetPasswordToken,
       resetPasswordExpire: { $gt: Date.now() }
-    }) as (IUser & { _id: mongoose.Types.ObjectId }) | null;
+    });
     
     if (!user) {
       res.status(400).json({
@@ -318,8 +298,8 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     
     await user.save();
     
-    // Generate new token for auto login - fixed typing
-    const newToken = signToken(user._id.toString());
+    // Fixed: Proper type handling for _id
+    const newToken = signToken(String(user._id));
     
     res.status(200).json({
       status: 'success',
