@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface DashboardStats {
   totalApplications: number;
@@ -36,10 +37,12 @@ interface DashboardStats {
 
 interface RecentApplication {
   id: string;
+  jobId: string;
   jobTitle: string;
   company: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'interview';
+  status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected' | 'withdrawn';
   appliedDate: string;
+  lastUpdated: string;
 }
 
 interface RecommendedJob {
@@ -73,76 +76,61 @@ export default function ApplicantDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API calls when backend endpoints are ready
       
-      // Mock data for now
-      setTimeout(() => {
-        setStats({
-          totalApplications: 12,
-          pendingApplications: 8,
-          acceptedApplications: 2,
-          rejectedApplications: 2,
-          savedJobs: 15,
-          profileCompletion: 65
-        });
-
-        setRecentApplications([
-          {
-            id: '1',
-            jobTitle: 'Frontend Developer',
-            company: 'TechCorp',
-            status: 'pending',
-            appliedDate: '2024-01-15'
-          },
-          {
-            id: '2',
-            jobTitle: 'React Developer',
-            company: 'StartupXYZ',
-            status: 'interview',
-            appliedDate: '2024-01-12'
-          }
-        ]);
-
-        setRecommendedJobs([
-          {
-            id: '1',
-            title: 'Senior Frontend Developer',
-            company: 'Innovation Labs',
-            location: 'Remote',
-            salary: '$80,000 - $120,000',
-            type: 'Full-time',
-            matchScore: 95
-          },
-          {
-            id: '2',
-            title: 'React Native Developer',
-            company: 'Mobile First',
-            location: 'New York, NY',
-            salary: '$90,000 - $130,000',
-            type: 'Full-time',
-            matchScore: 88
-          }
-        ]);
-
-        setLoading(false);
-      }, 1000);
+      // Fetch applications
+      const applicationsResponse = await api.get('/applications/my-applications');
+      const applications = applicationsResponse.data.data.applications;
+      
+      // Fetch saved jobs (you'll need to implement this endpoint)
+      // const savedJobsResponse = await api.get('/users/saved-jobs');
+      // const savedJobs = savedJobsResponse.data.data.savedJobs;
+      
+      // Calculate stats from real data
+      const stats: DashboardStats = {
+        totalApplications: applications.length,
+        pendingApplications: applications.filter((app: any) => app.status === 'pending').length,
+        acceptedApplications: applications.filter((app: any) => 
+          ['accepted', 'interview', 'offer'].includes(app.status)
+        ).length,
+        rejectedApplications: applications.filter((app: any) => app.status === 'rejected').length,
+        savedJobs: 0, // TODO: Implement saved jobs endpoint
+        profileCompletion: 65 // TODO: Calculate based on user profile completeness
+      };
+      
+      setStats(stats);
+      
+      // Set recent applications (last 5)
+      const recentApps = applications.slice(0, 5).map((app: any) => ({
+        id: app._id,
+        jobId: app.jobId._id,
+        jobTitle: app.jobId.title,
+        company: app.jobId.company,
+        status: app.status,
+        appliedDate: app.appliedDate,
+        lastUpdated: app.lastUpdated
+      }));
+      
+      setRecentApplications(recentApps);
+      
+      // Fetch recommended jobs
+      const jobsResponse = await api.get('/jobs?limit=3');
+      const jobs = jobsResponse.data.data.jobs;
+      
+      const recommended = jobs.map((job: any) => ({
+        id: job._id,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        salary: job.salary || 'Competitive',
+        type: job.type,
+        matchScore: Math.floor(Math.random() * 30) + 70 // TODO: Implement actual matching
+      }));
+      
+      setRecommendedJobs(recommended);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setLoading(false);
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <ClockIcon className="h-4 w-4 text-yellow-500" />;
-      case 'accepted':
-      case 'interview':
-        return <CheckCircleIcon className="h-4 w-4 text-green-500" />;
-      case 'rejected':
-        return <XCircleIcon className="h-4 w-4 text-red-500" />;
-      default:
-        return <AlertCircleIcon className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -150,13 +138,33 @@ export default function ApplicantDashboard() {
     switch (status) {
       case 'pending':
         return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
-      case 'accepted':
+      case 'reviewing':
+        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
       case 'interview':
+      case 'offer':
+      case 'accepted':
         return 'bg-green-500/10 text-green-500 border-green-500/20';
       case 'rejected':
         return 'bg-red-500/10 text-red-500 border-red-500/20';
       default:
         return 'bg-muted text-muted-foreground border-border';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <ClockIcon className="h-4 w-4" />;
+      case 'reviewing':
+        return <AlertCircleIcon className="h-4 w-4" />;
+      case 'interview':
+      case 'offer':
+      case 'accepted':
+        return <CheckCircleIcon className="h-4 w-4" />;
+      case 'rejected':
+        return <XCircleIcon className="h-4 w-4" />;
+      default:
+        return <BriefcaseIcon className="h-4 w-4" />;
     }
   };
 
@@ -187,18 +195,13 @@ export default function ApplicantDashboard() {
             </div>
             <div className="flex gap-3">
               <ThemeToggle />
-              <Button 
-                variant="outline" 
-                asChild
-              >
+              <Button variant="outline" asChild>
                 <Link to="/applicant/jobs">
                   <Search className="h-4 w-4 mr-2" />
                   Browse Jobs
                 </Link>
               </Button>
-              <Button 
-                asChild
-              >
+              <Button asChild>
                 <Link to="/applicant/profile">
                   Complete Profile
                 </Link>
@@ -280,7 +283,7 @@ export default function ApplicantDashboard() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Accepted</p>
+                  <p className="text-sm text-muted-foreground">Positive</p>
                   <p className="text-3xl font-bold text-green-500">
                     {stats.acceptedApplications}
                   </p>
@@ -313,11 +316,7 @@ export default function ApplicantDashboard() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-foreground">Recent Applications</CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    asChild
-                  >
+                  <Button variant="ghost" size="sm" asChild>
                     <Link to="/applicant/applications">
                       View All
                     </Link>
@@ -412,8 +411,11 @@ export default function ApplicantDashboard() {
                         <Button 
                           size="sm" 
                           className="flex-1 text-xs"
+                          asChild
                         >
-                          Apply Now
+                          <Link to={`/applicant/jobs/${job.id}`}>
+                            View Details
+                          </Link>
                         </Button>
                         <Button 
                           size="sm" 
@@ -445,7 +447,19 @@ export default function ApplicantDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
               <CardContent className="pt-6">
-                <Link to="/applicant/resume" className="flex items-center gap-3">
+                <Link to="/applicant/jobs" className="flex items-center gap-3">
+                  <Search className="h-6 w-6 text-primary" />
+                  <div>
+                    <h3 className="font-semibold text-foreground">Browse Jobs</h3>
+                    <p className="text-sm text-muted-foreground">Find new opportunities</p>
+                  </div>
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
+              <CardContent className="pt-6">
+                <Link to="/applicant/resumes" className="flex items-center gap-3">
                   <FileTextIcon className="h-6 w-6 text-primary" />
                   <div>
                     <h3 className="font-semibold text-foreground">Update Resume</h3>
@@ -466,32 +480,21 @@ export default function ApplicantDashboard() {
                 </Link>
               </CardContent>
             </Card>
-
-            <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-              <CardContent className="pt-6">
-                <Link to="/applicant/messages" className="flex items-center gap-3">
-                  <AlertCircleIcon className="h-6 w-6 text-green-500" />
-                  <div>
-                    <h3 className="font-semibold text-foreground">Messages</h3>
-                    <p className="text-sm text-muted-foreground">Check recruiter messages</p>
-                  </div>
-                </Link>
-              </CardContent>
-            </Card>
-
-            <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-              <CardContent className="pt-6">
-                <Link to="/applicant/job-alerts" className="flex items-center gap-3">
-                  <BellRing className="h-6 w-6 text-amber-500" />
-                  <div>
-                    <h3 className="font-semibold text-foreground">Job Alerts</h3>
-                    <p className="text-sm text-muted-foreground">Get notified about new opportunities</p>
-                  </div>
-                </Link>
-              </CardContent>
-            </Card>
           </div>
         </div>
+
+        {/* Notifications */}
+        <Card className="mt-8">
+          <CardContent className="pt-6">
+            <Link to="/applicant/notifications" className="flex items-center gap-3">
+              <BellRing className="h-6 w-6 text-blue-500" />
+              <div>
+                <h3 className="font-semibold text-foreground">Job Alerts</h3>
+                <p className="text-sm text-muted-foreground">Get notified about new opportunities</p>
+              </div>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

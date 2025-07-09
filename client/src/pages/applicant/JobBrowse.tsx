@@ -1,13 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -19,19 +13,19 @@ import {
 } from '@/components/ui/select';
 import {
   Search,
+  Filter,
   MapPin,
   Building2,
-  Clock,
   DollarSign,
-  BookmarkIcon,
-  Filter,
-  Briefcase,
+  Clock,
   Users,
-  Calendar
+  BookmarkIcon,
+  Briefcase,
+  CheckCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
-import api from '@/lib/api'; // Adjust the import based on your project structure
+import api from '@/lib/api';
 
 interface Job {
   id: string;
@@ -47,6 +41,7 @@ interface Job {
   postedDate: string;
   applicants: number;
   saved: boolean;
+  applied: boolean;
 }
 
 export default function JobBrowse() {
@@ -61,6 +56,7 @@ export default function JobBrowse() {
 
   useEffect(() => {
     fetchJobs();
+    fetchUserApplications();
   }, []);
 
   const fetchJobs = async () => {
@@ -73,11 +69,7 @@ export default function JobBrowse() {
       if (typeFilter && typeFilter !== 'all') params.type = typeFilter;
       if (experienceFilter && experienceFilter !== 'all') params.experience = experienceFilter;
       
-      console.log('Fetching jobs with params:', params);
-      
       const response = await api.get('/jobs', { params });
-      console.log('Jobs API response:', response.data);
-      
       const jobsData = response.data.data.jobs;
       
       // Map the backend data to frontend format
@@ -94,15 +86,32 @@ export default function JobBrowse() {
         benefits: job.benefits || [],
         postedDate: job.postedDate,
         applicants: job.applications || 0,
-        saved: false // This should come from user's saved jobs
+        saved: false,
+        applied: false // Will be updated by fetchUserApplications
       }));
       
-      console.log('Mapped jobs:', mappedJobs);
       setJobs(mappedJobs);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching jobs:', error);
       setLoading(false);
+    }
+  };
+
+  const fetchUserApplications = async () => {
+    try {
+      const response = await api.get('/applications/my-applications');
+      const appliedJobIds = response.data.data.applications.map((app: any) => app.jobId._id);
+      
+      // Update jobs to mark which ones user has applied to
+      setJobs(prevJobs => 
+        prevJobs.map(job => ({
+          ...job,
+          applied: appliedJobIds.includes(job.id)
+        }))
+      );
+    } catch (error) {
+      console.error('Error fetching user applications:', error);
     }
   };
 
@@ -133,11 +142,6 @@ export default function JobBrowse() {
     return matchesSearch && matchesLocation && matchesType && matchesExperience;
   });
 
-  useEffect(() => {
-    console.log('Filters changed:', { searchTerm, locationFilter, typeFilter, experienceFilter });
-    console.log('Filtered jobs count:', filteredJobs.length);
-  }, [searchTerm, locationFilter, typeFilter, experienceFilter, filteredJobs.length]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -163,9 +167,7 @@ export default function JobBrowse() {
             </div>
             <div className="flex gap-3">
               <ThemeToggle />
-              <Button 
-                asChild
-              >
+              <Button asChild>
                 <Link to="/applicant/dashboard">
                   Back to Dashboard
                 </Link>
@@ -187,26 +189,17 @@ export default function JobBrowse() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => {
-                  console.log('Filter button clicked, current showFilters:', showFilters);
-                  setShowFilters(!showFilters);
-                  console.log('Setting showFilters to:', !showFilters);
-                  
-                  // Force a re-render after a small delay
-                  setTimeout(() => {
-                    console.log('After timeout, showFilters is:', showFilters);
-                  }, 100);
-                }}
+                onClick={() => setShowFilters(!showFilters)}
               >
                 <Filter className="h-4 w-4 mr-2" />
-                Filters {showFilters ? '(Hide)' : '(Show)'}
+                Filters
               </Button>
             </div>
 
             {showFilters && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg border">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Location</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Location</label>
                   <Input
                     placeholder="Enter location..."
                     value={locationFilter}
@@ -214,10 +207,10 @@ export default function JobBrowse() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Job Type</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Job Type</label>
                   <Select value={typeFilter} onValueChange={setTypeFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
+                      <SelectValue placeholder="All types" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Types</SelectItem>
@@ -229,17 +222,17 @@ export default function JobBrowse() {
                   </Select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Experience</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Experience</label>
                   <Select value={experienceFilter} onValueChange={setExperienceFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select experience" />
+                      <SelectValue placeholder="All levels" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Levels</SelectItem>
-                      <SelectItem value="0-1">Entry Level</SelectItem>
-                      <SelectItem value="1-3">Junior</SelectItem>
-                      <SelectItem value="3-5">Mid Level</SelectItem>
-                      <SelectItem value="5+">Senior</SelectItem>
+                      <SelectItem value="0-1">Entry Level (0-1 years)</SelectItem>
+                      <SelectItem value="1-3">Junior (1-3 years)</SelectItem>
+                      <SelectItem value="3-5">Mid-level (3-5 years)</SelectItem>
+                      <SelectItem value="5+">Senior (5+ years)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -261,68 +254,9 @@ export default function JobBrowse() {
             )}
           </div>
 
-          {/* Results Count - Enhanced */}
-          <div className="mt-4 flex items-center justify-between">
-            <p className="text-muted-foreground">
-              {filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''} found
-              {(searchTerm || locationFilter || typeFilter || experienceFilter) && (
-                <span className="ml-2 text-primary">
-                  (filtered from {jobs.length} total)
-                </span>
-              )}
-            </p>
-            
-            {/* Active Filters Display */}
-            {(searchTerm || locationFilter || (typeFilter && typeFilter !== 'all') || (experienceFilter && experienceFilter !== 'all')) && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Active filters:</span>
-                {searchTerm && (
-                  <Badge variant="secondary" className="text-xs">
-                    Search: {searchTerm}
-                    <button 
-                      onClick={() => setSearchTerm('')}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                    >
-                      ×
-                    </button>
-                  </Badge>
-                )}
-                {locationFilter && (
-                  <Badge variant="secondary" className="text-xs">
-                    Location: {locationFilter}
-                    <button 
-                      onClick={() => setLocationFilter('')}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                    >
-                      ×
-                    </button>
-                  </Badge>
-                )}
-                {typeFilter && typeFilter !== 'all' && (
-                  <Badge variant="secondary" className="text-xs">
-                    Type: {typeFilter}
-                    <button 
-                      onClick={() => setTypeFilter('all')}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                    >
-                      ×
-                    </button>
-                  </Badge>
-                )}
-                {experienceFilter && experienceFilter !== 'all' && (
-                  <Badge variant="secondary" className="text-xs">
-                    Experience: {experienceFilter}
-                    <button 
-                      onClick={() => setExperienceFilter('all')}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                    >
-                      ×
-                    </button>
-                  </Badge>
-                )}
-              </div>
-            )}
-          </div>
+          <p className="text-muted-foreground mt-4">
+            {filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''} found
+          </p>
         </div>
       </div>
 
@@ -335,9 +269,17 @@ export default function JobBrowse() {
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex-1">
                     <div className="flex items-start justify-between mb-2">
-                      <h3 className="text-xl font-semibold text-foreground hover:text-primary cursor-pointer">
-                        {job.title}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xl font-semibold text-foreground hover:text-primary cursor-pointer">
+                          {job.title}
+                        </h3>
+                        {job.applied && (
+                          <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Applied
+                          </Badge>
+                        )}
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -399,16 +341,10 @@ export default function JobBrowse() {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button 
-                          variant="outline"
-                          asChild
-                        >
+                        <Button asChild>
                           <Link to={`/applicant/jobs/${job.id}`}>
                             View Details
                           </Link>
-                        </Button>
-                        <Button>
-                          Apply Now
                         </Button>
                       </div>
                     </div>
@@ -430,8 +366,8 @@ export default function JobBrowse() {
                   onClick={() => {
                     setSearchTerm('');
                     setLocationFilter('');
-                    setTypeFilter('');
-                    setExperienceFilter('');
+                    setTypeFilter('all');
+                    setExperienceFilter('all');
                   }}
                 >
                   Clear All Filters

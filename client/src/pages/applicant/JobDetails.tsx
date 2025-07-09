@@ -84,6 +84,7 @@ export default function JobDetails() {
     if (id) {
       fetchJobDetails(id);
       fetchResumes();
+      checkApplicationStatus(id);
     }
   }, [id]);
 
@@ -113,7 +114,7 @@ export default function JobDetails() {
         status: jobData.status,
         isUrgent: jobData.isUrgent || false,
         saved: false,
-        applied: false
+        applied: false // Will be updated by checkApplicationStatus
       });
       
       setLoading(false);
@@ -134,6 +135,20 @@ export default function JobDetails() {
       })));
     } catch (error) {
       console.error('Error fetching resumes:', error);
+    }
+  };
+
+  const checkApplicationStatus = async (jobId: string) => {
+    try {
+      const response = await api.get('/applications/my-applications');
+      const appliedJobIds = response.data.data.applications.map((app: any) => app.jobId._id);
+      
+      // Update job applied status
+      setJob(prevJob => 
+        prevJob ? { ...prevJob, applied: appliedJobIds.includes(jobId) } : null
+      );
+    } catch (error) {
+      console.error('Error checking application status:', error);
     }
   };
 
@@ -175,7 +190,7 @@ export default function JobDetails() {
         coverLetter: coverLetter || 'I am interested in this position and would like to apply.'
       });
       
-      setJob({ ...job, applied: true });
+      setJob({ ...job, applied: true, applicants: job.applicants + 1 });
       setShowApplicationDialog(false);
       setApplying(false);
       
@@ -249,6 +264,12 @@ export default function JobDetails() {
                   <h1 className="text-3xl font-bold text-foreground">{job.title}</h1>
                   {job.isUrgent && (
                     <Badge variant="destructive">URGENT</Badge>
+                  )}
+                  {job.applied && (
+                    <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20">
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Applied
+                    </Badge>
                   )}
                 </div>
                 <p className="text-xl text-muted-foreground">{job.company}</p>

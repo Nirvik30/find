@@ -9,7 +9,6 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   Briefcase,
   Users,
@@ -28,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import api from '@/lib/api';
 
 interface DashboardStats {
   activeJobs: number;
@@ -78,108 +78,65 @@ export default function RecruiterDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API calls
-      setTimeout(() => {
-        setStats({
-          activeJobs: 8,
-          totalApplications: 147,
-          newApplications: 24,
-          interviewsScheduled: 15,
-          offersSent: 7,
-          filled: 3
-        });
+      
+      // Fetch recruiter's jobs
+      const jobsResponse = await api.get('/jobs/recruiter/dashboard');
+      const jobs = jobsResponse.data.data.jobs;
+      
+      // Fetch all applications for recruiter's jobs
+      const applicationsResponse = await api.get('/applications/candidates');
+      const applications = applicationsResponse.data.data.candidates;
+      
+      // Calculate stats from real data
+      const stats: DashboardStats = {
+        activeJobs: jobs.filter((job: any) => job.status === 'active').length,
+        totalApplications: applications.length,
+        newApplications: applications.filter((app: any) => {
+          const appliedDate = new Date(app.appliedDate);
+          const threeDaysAgo = new Date();
+          threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+          return appliedDate >= threeDaysAgo;
+        }).length,
+        interviewsScheduled: applications.filter((app: any) => app.status === 'interview').length,
+        offersSent: applications.filter((app: any) => app.status === 'offer').length,
+        filled: jobs.filter((job: any) => job.status === 'filled').length
+      };
+      
+      setStats(stats);
+      
+      // Set recent applications (last 5)
+      const recentApps = applications.slice(0, 5).map((app: any) => ({
+        id: app.id,
+        applicantName: app.name,
+        applicantAvatar: app.avatar,
+        jobTitle: app.jobTitle,
+        appliedDate: app.appliedDate,
+        status: app.status
+      }));
+      
+      setRecentApplications(recentApps);
+      
+      // Set job postings stats
+      const jobStats = jobs.slice(0, 5).map((job: any) => {
+        const postedDate = new Date(job.postedDate);
+        const now = new Date();
+        const daysAgo = Math.floor((now.getTime() - postedDate.getTime()) / (1000 * 60 * 60 * 24));
         
-        setRecentApplications([
-          {
-            id: '1',
-            applicantName: 'John Doe',
-            applicantAvatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-            jobTitle: 'Senior Frontend Developer',
-            appliedDate: '2024-04-10T15:30:00',
-            status: 'pending'
-          },
-          {
-            id: '2',
-            applicantName: 'Sarah Johnson',
-            applicantAvatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-            jobTitle: 'UI/UX Designer',
-            appliedDate: '2024-04-09T10:15:00',
-            status: 'reviewing'
-          },
-          {
-            id: '3',
-            applicantName: 'Michael Chen',
-            applicantAvatar: 'https://randomuser.me/api/portraits/men/52.jpg',
-            jobTitle: 'React Developer',
-            appliedDate: '2024-04-08T14:45:00',
-            status: 'interview'
-          },
-          {
-            id: '4',
-            applicantName: 'Emily Davis',
-            jobTitle: 'Backend Developer',
-            appliedDate: '2024-04-08T09:20:00',
-            status: 'offer'
-          },
-          {
-            id: '5',
-            applicantName: 'David Wilson',
-            applicantAvatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-            jobTitle: 'DevOps Engineer',
-            appliedDate: '2024-04-07T16:05:00',
-            status: 'rejected'
-          }
-        ]);
-        
-        setJobPostings([
-          {
-            id: '1',
-            title: 'Senior Frontend Developer',
-            datePosted: '2024-03-25T09:00:00',
-            applications: 47,
-            views: 325,
-            status: 'active',
-            daysRemaining: 15
-          },
-          {
-            id: '2',
-            title: 'UI/UX Designer',
-            datePosted: '2024-03-28T11:30:00',
-            applications: 32,
-            views: 218,
-            status: 'active',
-            daysRemaining: 18
-          },
-          {
-            id: '3',
-            title: 'React Developer',
-            datePosted: '2024-04-01T10:15:00',
-            applications: 23,
-            views: 156,
-            status: 'active',
-            daysRemaining: 22
-          },
-          {
-            id: '4',
-            title: 'Backend Developer',
-            datePosted: '2024-03-15T14:00:00',
-            applications: 35,
-            views: 290,
-            status: 'filled'
-          },
-          {
-            id: '5',
-            title: 'DevOps Engineer',
-            datePosted: '2024-04-05T09:45:00',
-            applications: 10,
-            views: 87,
-            status: 'active',
-            daysRemaining: 26
-          }
-        ]);
-        
-        setLoading(false);
-      }, 1000);
+        return {
+          id: job._id,
+          title: job.title,
+          datePosted: job.postedDate,
+          applications: job.applications || 0,
+          views: job.views || 0,
+          status: job.status,
+          daysRemaining: job.status === 'active' && job.applicationDeadline ? 
+            Math.max(0, Math.floor((new Date(job.applicationDeadline).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))) : 
+            undefined
+        };
+      });
+      
+      setJobPostings(jobStats);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setLoading(false);
@@ -204,7 +161,7 @@ export default function RecruiterDashboard() {
         return <AlertCircle className="h-4 w-4 text-gray-500" />;
     }
   };
-  
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
@@ -378,45 +335,57 @@ export default function RecruiterDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {recentApplications.map((application) => (
-                    <div 
-                      key={application.id}
-                      className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                          {application.applicantAvatar ? (
-                            <img 
-                              src={application.applicantAvatar} 
-                              alt={application.applicantName}
-                              className="w-10 h-10 rounded-full object-cover" 
-                            />
-                          ) : (
-                            <Users className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <h4 className="font-semibold text-foreground text-sm">
-                              {application.applicantName}
-                            </h4>
-                            <Badge 
-                              variant="outline"
-                              className={getStatusColor(application.status)}
-                            >
-                              {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
-                            </Badge>
+                  {recentApplications.length > 0 ? (
+                    recentApplications.map((application) => (
+                      <div 
+                        key={application.id}
+                        className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                            {application.applicantAvatar ? (
+                              <img 
+                                src={application.applicantAvatar} 
+                                alt={application.applicantName}
+                                className="w-10 h-10 rounded-full object-cover" 
+                              />
+                            ) : (
+                              <Users className="h-5 w-5 text-muted-foreground" />
+                            )}
                           </div>
-                          <p className="text-sm text-primary mb-1">
-                            {application.jobTitle}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Applied {new Date(application.appliedDate).toLocaleDateString()}
-                          </p>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="font-semibold text-foreground text-sm">
+                                {application.applicantName}
+                              </h4>
+                              <Badge 
+                                variant="outline"
+                                className={getStatusColor(application.status)}
+                              >
+                                {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-primary mb-1">
+                              {application.jobTitle}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Applied {new Date(application.appliedDate).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground mb-4">No applications yet</p>
+                      <Button asChild>
+                        <Link to="/recruiter/job-post/new">
+                          Post Your First Job
+                        </Link>
+                      </Button>
                     </div>
-                  ))}
+                  )}
                 </div>
                 <Button 
                   variant="ghost" 
@@ -452,55 +421,67 @@ export default function RecruiterDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {jobPostings.map((job) => (
-                    <div 
-                      key={job.id}
-                      className="p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold text-foreground">
-                              {job.title}
-                            </h4>
-                            <Badge 
-                              variant="outline"
-                              className={getJobStatusColor(job.status)}
-                            >
-                              {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              <span>Posted {new Date(job.datePosted).toLocaleDateString()}</span>
+                  {jobPostings.length > 0 ? (
+                    jobPostings.map((job) => (
+                      <div 
+                        key={job.id}
+                        className="p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-foreground">
+                                {job.title}
+                              </h4>
+                              <Badge 
+                                variant="outline"
+                                className={getJobStatusColor(job.status)}
+                              >
+                                {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                              </Badge>
                             </div>
-                            {job.daysRemaining !== undefined && (
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
                               <div className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                <span>{job.daysRemaining} days remaining</span>
+                                <Calendar className="h-4 w-4" />
+                                <span>Posted {new Date(job.datePosted).toLocaleDateString()}</span>
                               </div>
-                            )}
+                              {job.daysRemaining !== undefined && (
+                                <div className="flex items-center gap-1">
+                                  <Clock className="h-4 w-4" />
+                                  <span>{job.daysRemaining} days remaining</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex gap-4">
-                          <div className="text-center">
-                            <p className="text-sm font-semibold text-foreground">{job.applications}</p>
-                            <p className="text-xs text-muted-foreground">Applications</p>
+                          <div className="flex gap-4">
+                            <div className="text-center">
+                              <p className="text-sm font-semibold text-foreground">{job.applications}</p>
+                              <p className="text-xs text-muted-foreground">Applications</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-sm font-semibold text-foreground">{job.views}</p>
+                              <p className="text-xs text-muted-foreground">Views</p>
+                            </div>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link to={`/recruiter/job-posts/${job.id}`}>
+                                View
+                              </Link>
+                            </Button>
                           </div>
-                          <div className="text-center">
-                            <p className="text-sm font-semibold text-foreground">{job.views}</p>
-                            <p className="text-xs text-muted-foreground">Views</p>
-                          </div>
-                          <Button size="sm" variant="outline" asChild>
-                            <Link to={`/recruiter/job-posts/${job.id}`}>
-                              View
-                            </Link>
-                          </Button>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Briefcase className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground mb-4">No job postings yet</p>
+                      <Button asChild>
+                        <Link to="/recruiter/job-post/new">
+                          Create Your First Job Post
+                        </Link>
+                      </Button>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -533,9 +514,9 @@ export default function RecruiterDashboard() {
             </Button>
             
             <Button variant="outline" className="h-auto flex-col p-6 gap-2" asChild>
-              <Link to="/recruiter/company-profile">
-                <Briefcase className="h-8 w-8 mb-2" />
-                <span className="text-sm font-medium">Company Profile</span>
+              <Link to="/recruiter/analytics">
+                <TrendingUp className="h-8 w-8 mb-2" />
+                <span className="text-sm font-medium">Analytics</span>
               </Link>
             </Button>
           </div>
