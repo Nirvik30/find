@@ -71,8 +71,29 @@ export default function JobPostList() {
   const fetchJobPosts = async () => {
     try {
       setLoading(true);
+      console.log('Fetching recruiter jobs...');
       const response = await api.get('/jobs/recruiter/dashboard');
-      setJobPosts(response.data.data.jobs);
+      console.log('Recruiter jobs response:', response.data);
+      
+      // Map the backend data to frontend format
+      const mappedJobs = response.data.data.jobs.map((job: any) => ({
+        id: job._id,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        type: job.type,
+        experience: job.experience,
+        salary: job.salary,
+        status: job.status,
+        isUrgent: job.isUrgent,
+        postedDate: job.postedDate,
+        updatedDate: job.updatedDate,
+        applications: job.applications,
+        views: job.views,
+        applicationDeadline: job.applicationDeadline
+      }));
+      
+      setJobPosts(mappedJobs);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching job posts:', error);
@@ -111,11 +132,18 @@ export default function JobPostList() {
   };
   
   const deleteJobPost = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this job post?')) {
+      return;
+    }
+    
     try {
+      console.log('Deleting job with ID:', id);
       await api.delete(`/jobs/${id}`);
       setJobPosts(jobPosts.filter(job => job.id !== id));
-    } catch (error) {
+      console.log('Job deleted successfully');
+    } catch (error: any) {
       console.error('Error deleting job post:', error);
+      alert(`Failed to delete job: ${error.response?.data?.message || error.message}`);
     }
   };
   

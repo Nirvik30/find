@@ -1,134 +1,66 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ICompany extends Document {
   name: string;
-  logo?: string;
-  coverImage?: string;
   industry: string;
-  website: string;
+  website?: string;
   location: string;
   size: string;
-  founded: string;
   about: string;
-  mission: string;
-  culture: string[];
-  benefits: {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-  }[];
-  socialMedia: {
-    facebook?: string;
-    twitter?: string;
-    linkedin?: string;
-    instagram?: string;
-    github?: string;
-  };
-  gallery: {
-    id: string;
-    url: string;
-    caption: string;
-  }[];
-  team: {
-    id: string;
-    name: string;
-    title: string;
-    avatar?: string;
-  }[];
-  createdAt: Date;
-  updatedAt: Date;
+  founded: string;
+  logo?: string;
+  coverImage?: string; // Add this line
+  employees?: string;
+  benefits?: string[];
+  culture?: string[];
 }
 
 const companySchema = new Schema<ICompany>({
   name: {
     type: String,
-    required: [true, 'Please provide company name'],
-    unique: true,
+    required: [true, 'Company name is required'],
     trim: true
   },
-  logo: String,
-  coverImage: String,
   industry: {
     type: String,
-    required: [true, 'Please provide company industry']
+    required: [true, 'Industry is required'],
+    trim: true
   },
   website: {
     type: String,
-    required: [true, 'Please provide company website']
+    required: false,
+    trim: true,
+    default: ''
   },
   location: {
     type: String,
-    required: [true, 'Please provide company location']
+    required: [true, 'Location is required'],
+    trim: true
   },
   size: {
     type: String,
-    required: [true, 'Please provide company size']
+    required: [true, 'Company size is required'],
+    enum: ['1-10', '11-50', '51-200', '201-1000', '1000+']
   },
-  founded: String,
   about: {
     type: String,
-    required: [true, 'Please provide company description']
+    required: [true, 'Company description is required']
   },
-  mission: String,
-  culture: [String],
-  benefits: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      title: {
-        type: String,
-        required: true
-      },
-      description: {
-        type: String,
-        required: true
-      },
-      icon: {
-        type: String,
-        required: true
-      }
-    }
-  ],
-  socialMedia: {
-    facebook: String,
-    twitter: String,
-    linkedin: String,
-    instagram: String,
-    github: String
+  founded: {
+    type: String,
+    required: [true, 'Founded year is required']
   },
-  gallery: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      url: {
-        type: String,
-        required: true
-      },
-      caption: String
-    }
-  ],
-  team: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      name: {
-        type: String,
-        required: true
-      },
-      title: {
-        type: String,
-        required: true
-      },
-      avatar: String
-    }
-  ]
+  logo: {
+    type: String,
+    default: ''
+  },
+  coverImage: { // Add this field
+    type: String,
+    default: ''
+  },
+  employees: String,
+  benefits: [String],
+  culture: [String]
 }, {
   timestamps: true
 });

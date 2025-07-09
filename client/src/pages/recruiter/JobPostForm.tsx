@@ -131,14 +131,9 @@ export default function JobPostForm() {
     try {
       setSaving(true);
       
-      // Debug logging
-      console.log('Current user:', user);
-      console.log('User role:', user?.role);
-      console.log('Auth token exists:', !!localStorage.getItem('token'));
-      
       const jobToSave = {
         ...jobPost,
-        status: publish ? 'active' : jobPost.status,
+        status: publish ? 'active' : (jobPost.status === 'draft' ? 'active' : jobPost.status), // Default to active
         company: user?.companyName || jobPost.company || `${user?.name}'s Company`,
         applicationDeadline: jobPost.applicationDeadline || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       };
@@ -146,7 +141,7 @@ export default function JobPostForm() {
       console.log('Job data to save:', jobToSave);
       
       let response;
-      if (isEditing && jobPost.id) {
+      if (isEditing && jobPost.id && !jobPost.id.startsWith('temp-')) {
         response = await api.patch(`/jobs/${jobPost.id}`, jobToSave);
       } else {
         response = await api.post('/jobs', jobToSave);
@@ -158,7 +153,6 @@ export default function JobPostForm() {
     } catch (error: any) {
       console.error('Error saving job post:', error);
       console.error('Error response:', error.response?.data);
-      console.error('Request headers:', error.config?.headers);
       setSaving(false);
       
       alert(`Failed to save job: ${error.response?.data?.message || error.message}`);

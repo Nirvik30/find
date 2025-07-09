@@ -16,7 +16,7 @@ const router = express.Router();
 router.get('/', getAllJobs); // For job search by applicants
 router.get('/:id', getJob); // Get single job details
 
-// Apply protection middleware to all routes below
+// Protected routes - require authentication
 router.use(protect);
 
 // Recruiter-only routes

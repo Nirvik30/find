@@ -90,10 +90,10 @@ export const updateCompanyProfile = async (req: AuthenticatedRequest, res: Respo
       return;
     }
     
-    // Ensure required fields are present
-    const { name, industry, website, location, size, about } = req.body;
+    // Make website optional for updates
+    const { name, industry, location, size, about } = req.body;
     
-    if (!name || !industry || !website || !location || !size || !about) {
+    if (!name || !industry || !location || !size || !about) {
       res.status(400).json({
         status: 'fail',
         message: 'Please provide all required company information'
@@ -162,8 +162,6 @@ export const getCompanyById = async (req: Request, res: Response): Promise<void>
 // Upload company logo
 export const uploadCompanyLogo = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    // This would use a file upload middleware like multer
-    // For now, we'll assume the file URL is passed in the request body
     const { logoUrl } = req.body;
     const user = await User.findById(req.user?.id);
     
@@ -198,8 +196,6 @@ export const uploadCompanyLogo = async (req: AuthenticatedRequest, res: Response
 // Upload company cover image
 export const uploadCompanyCover = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    // This would use a file upload middleware like multer
-    // For now, we'll assume the file URL is passed in the request body
     const { coverImageUrl } = req.body;
     const user = await User.findById(req.user?.id);
     

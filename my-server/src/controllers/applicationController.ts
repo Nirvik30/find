@@ -2,10 +2,16 @@ import { Request, Response } from 'express';
 import Application from '../models/applicationModel';
 import Job from '../models/jobModel';
 import Resume from '../models/resumeModel';
+import User from '../models/userModel';
+import mongoose from 'mongoose';
 
-// Define an extended request type
 interface AuthRequest extends Request {
-  user?: { id: string; role?: string; name?: string; };
+  user?: { 
+    id: string; 
+    role?: string; 
+    name?: string;
+    email?: string;
+  };
 }
 
 // Apply for a job
@@ -14,7 +20,15 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
     const { jobId } = req.params;
     const { resumeId, coverLetter } = req.body;
     const applicantId = req.user?.id;
-    
+
+    if (!applicantId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     // Check if job exists and is active
     const job = await Job.findOne({ _id: jobId, status: 'active' });
     
@@ -32,7 +46,7 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
     if (!resume) {
       res.status(404).json({
         status: 'fail',
-        message: 'Resume not found'
+        message: 'Resume not found or you do not have permission to use this resume'
       });
       return;
     }
@@ -56,25 +70,32 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
       jobId,
       applicantId,
       resumeId,
-      coverLetter,
+      coverLetter: coverLetter || 'No cover letter provided',
       status: 'pending',
       appliedDate: new Date(),
       lastUpdated: new Date(),
       priority: 'medium',
-      matchScore: Math.floor(Math.random() * 30) + 70 // Mock match score calculation
+      matchScore: Math.floor(Math.random() * 30) + 70
     });
     
     // Update job applications count
-    job.applications += 1;
+    const currentApplications = job.applications || 0;
+    job.applications = currentApplications + 1;
     await job.save();
+    
+    // Populate the application with job and resume details
+    const populatedApplication = await Application.findById(application._id)
+      .populate('jobId', 'title company location type salary')
+      .populate('resumeId', 'name template');
     
     res.status(201).json({
       status: 'success',
       data: {
-        application
+        application: populatedApplication
       }
     });
   } catch (error: any) {
+    console.error('Error in applyForJob:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to apply for job'
@@ -85,10 +106,18 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
 // Get my applications (for applicants)
 export const getMyApplications = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const applications = await Application.find({ applicantId: req.user?.id })
-      .sort('-appliedDate')
-      .populate('jobId', 'title company location type salary status')
-      .populate('resumeId', 'name');
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
+    const applications = await Application.find({ applicantId: req.user.id })
+      .sort({ appliedDate: -1 })
+      .populate('jobId', 'title company location type salary status postedDate')
+      .populate('resumeId', 'name template');
     
     res.status(200).json({
       status: 'success',
@@ -98,6 +127,7 @@ export const getMyApplications = async (req: AuthRequest, res: Response): Promis
       }
     });
   } catch (error: any) {
+    console.error('Error in getMyApplications:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to retrieve applications'
@@ -108,9 +138,17 @@ export const getMyApplications = async (req: AuthRequest, res: Response): Promis
 // Withdraw application
 export const withdrawApplication = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     const application = await Application.findOne({
       _id: req.params.id,
-      applicantId: req.user?.id
+      applicantId: req.user.id
     });
     
     if (!application) {
@@ -121,7 +159,6 @@ export const withdrawApplication = async (req: AuthRequest, res: Response): Prom
       return;
     }
     
-    // Can only withdraw pending or reviewing applications
     if (!['pending', 'reviewing'].includes(application.status)) {
       res.status(400).json({
         status: 'fail',
@@ -141,6 +178,7 @@ export const withdrawApplication = async (req: AuthRequest, res: Response): Prom
       }
     });
   } catch (error: any) {
+    console.error('Error in withdrawApplication:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to withdraw application'
@@ -151,12 +189,19 @@ export const withdrawApplication = async (req: AuthRequest, res: Response): Prom
 // Get applications for a job (for recruiters)
 export const getApplicationsByJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     const { jobId } = req.params;
     
-    // Verify job belongs to recruiter
     const job = await Job.findOne({
       _id: jobId,
-      recruiterId: req.user?.id
+      recruiterId: req.user.id
     });
     
     if (!job) {
@@ -168,9 +213,9 @@ export const getApplicationsByJob = async (req: AuthRequest, res: Response): Pro
     }
     
     const applications = await Application.find({ jobId })
-      .sort('-appliedDate')
-      .populate('applicantId', 'name email avatar location')
-      .populate('resumeId', 'name template');
+      .sort({ appliedDate: -1 })
+      .populate('applicantId', 'name email avatar location phone')
+      .populate('resumeId', 'name template downloadUrl');
     
     res.status(200).json({
       status: 'success',
@@ -180,6 +225,7 @@ export const getApplicationsByJob = async (req: AuthRequest, res: Response): Pro
       }
     });
   } catch (error: any) {
+    console.error('Error in getApplicationsByJob:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to retrieve applications'
@@ -190,12 +236,18 @@ export const getApplicationsByJob = async (req: AuthRequest, res: Response): Pro
 // Update application status (for recruiters)
 export const updateApplicationStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     const { status, notes, priority } = req.body;
     
-    // Find application and verify ownership
-    const application = await Application.findById(id)
-      .populate('jobId', 'recruiterId');
+    const application = await Application.findById(req.params.id)
+      .populate('jobId', 'recruiterId title');
     
     if (!application) {
       res.status(404).json({
@@ -205,33 +257,36 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response): 
       return;
     }
     
-    // Check if job belongs to recruiter
-    if ((application.jobId as any).recruiterId.toString() !== req.user?.id) {
+    const job = application.jobId as any;
+    if (job.recruiterId.toString() !== req.user.id) {
       res.status(403).json({
         status: 'fail',
-        message: 'You do not have permission to update this application'
+        message: 'You can only update applications for your own jobs'
       });
       return;
     }
     
-    // Update application
-    application.status = status || application.status;
-    if (notes) {
-      if (!application.notes) application.notes = [];
-      application.notes.push(`${new Date().toISOString()}: ${notes}`);
-    }
+    if (status) application.status = status;
+    if (notes) application.notes = notes;
     if (priority) application.priority = priority;
     application.lastUpdated = new Date();
     
     await application.save();
     
+    // Populate the updated application
+    const updatedApplication = await Application.findById(application._id)
+      .populate('applicantId', 'name email avatar location phone')
+      .populate('resumeId', 'name template downloadUrl')
+      .populate('jobId', 'title company');
+    
     res.status(200).json({
       status: 'success',
       data: {
-        application
+        application: updatedApplication
       }
     });
   } catch (error: any) {
+    console.error('Error in updateApplicationStatus:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to update application status'
@@ -239,174 +294,64 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response): 
   }
 };
 
-// Schedule interview (for recruiters)
-export const scheduleInterview = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const { type, date, duration, interviewers } = req.body;
-    
-    // Find application and verify ownership
-    const application = await Application.findById(id)
-      .populate('jobId', 'recruiterId');
-    
-    if (!application) {
-      res.status(404).json({
-        status: 'fail',
-        message: 'Application not found'
-      });
-      return;
-    }
-    
-    // Check if job belongs to recruiter
-    if ((application.jobId as any).recruiterId.toString() !== req.user?.id) {
-      res.status(403).json({
-        status: 'fail',
-        message: 'You do not have permission to schedule an interview for this application'
-      });
-      return;
-    }
-    
-    // Create interview
-    const interview = {
-      id: `int_${Date.now()}`,
-      type,
-      date: new Date(date),
-      duration,
-      interviewers,
-      status: 'scheduled'
-    };
-    
-    // Add interview to application
-    if (!application.interviews) application.interviews = [];
-    application.interviews.push(interview as any);
-    
-    // Update application status if not already in interview stage
-    if (application.status !== 'interview') {
-      application.status = 'interview';
-    }
-    
-    application.lastUpdated = new Date();
-    await application.save();
-    
-    res.status(201).json({
-      status: 'success',
-      data: {
-        interview,
-        application
-      }
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to schedule interview'
-    });
-  }
-};
-
-// Get application statistics (for recruiters)
-export const getApplicationStats = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    // Get all jobs by recruiter
-    const jobs = await Job.find({ recruiterId: req.user?.id });
-    const jobIds = jobs.map(job => job._id);
-    
-    // Get application stats by status
-    const stats = await Application.aggregate([
-      { $match: { jobId: { $in: jobIds } } },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-    
-    // Format stats
-    const formattedStats = {
-      total: 0,
-      pending: 0,
-      reviewing: 0,
-      interview: 0,
-      offer: 0,
-      accepted: 0,
-      rejected: 0,
-      withdrawn: 0
-    };
-    
-    stats.forEach(stat => {
-      const status = stat._id as keyof typeof formattedStats;
-      if (status in formattedStats) {
-        formattedStats[status] = stat.count;
-      }
-      formattedStats.total += stat.count;
-    });
-    
-    res.status(200).json({
-      status: 'success',
-      data: {
-        stats: formattedStats
-      }
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to retrieve application statistics'
-    });
-  }
-};
-
-// Get candidates list for ApplicationsList view (for recruiters)
+// Get candidates list for recruiters
 export const getCandidates = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Get query params for filtering
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
     const { jobId, status, search } = req.query;
     
-    // Build query
-    const query: any = {};
-    
     // Get all jobs by recruiter
-    const jobs = await Job.find({ recruiterId: req.user?.id });
+    const jobs = await Job.find({ recruiterId: req.user.id });
     const jobIds = jobs.map(job => job._id);
     
-    query.jobId = { $in: jobIds };
+    // Build query
+    const query: any = {
+      jobId: { $in: jobIds }
+    };
     
-    // Apply filters
     if (jobId) query.jobId = jobId;
     if (status) query.status = status;
     
-    // Get applications
     let applications = await Application.find(query)
       .populate('jobId', 'title company')
-      .populate('applicantId', 'name email location avatar')
-      .populate('resumeId', 'name')
-      .sort('-appliedDate');
+      .populate('applicantId', 'name email location avatar phone')
+      .populate('resumeId', 'name template downloadUrl')
+      .sort({ appliedDate: -1 });
     
     // Format data for frontend
-    const candidates = applications.map(app => {
-      // Add additional properties that might be needed in the frontend
-      const matchScore = app.matchScore || Math.floor(Math.random() * 30) + 70;
-      const starred = false; // This would come from a separate collection in a real app
-      
-      return {
-        id: app._id,
-        name: (app.applicantId as any).name,
-        email: (app.applicantId as any).email,
-        location: (app.applicantId as any).location,
-        avatar: (app.applicantId as any).avatar,
-        status: app.status,
-        jobId: app.jobId,
-        jobTitle: (app.jobId as any).title,
-        company: (app.jobId as any).company,
-        appliedDate: app.appliedDate,
-        matchScore,
-        starred,
-        resumeId: app.resumeId,
-        lastActivity: app.lastUpdated,
-        priority: app.priority
-      };
-    });
+    const candidates = applications.map(app => ({
+      id: app._id.toString(),
+      name: (app.applicantId as any).name,
+      email: (app.applicantId as any).email,
+      phone: (app.applicantId as any).phone || '',
+      location: (app.applicantId as any).location || 'Not specified',
+      avatar: (app.applicantId as any).avatar || '',
+      matchScore: app.matchScore,
+      starred: false,
+      status: app.status,
+      appliedDate: app.appliedDate.toISOString(),
+      lastActivity: app.lastUpdated.toISOString(),
+      resumeUrl: (app.resumeId as any)?.downloadUrl || '',
+      coverLetter: app.coverLetter,
+      jobId: (app.jobId as any)._id.toString(),
+      jobTitle: (app.jobId as any).title,
+      company: (app.jobId as any).company,
+      jobMatch: app.matchScore,
+      skills: [],
+      experience: 'Not specified',
+      education: 'Not specified',
+      notes: app.notes ? [app.notes] : [],
+      priority: app.priority
+    }));
     
-    // Apply search filter after formatting (for more flexibility)
+    // Apply search filter
     let filteredCandidates = candidates;
     if (search) {
       const searchTerm = (search as string).toLowerCase();
@@ -427,9 +372,13 @@ export const getCandidates = async (req: AuthRequest, res: Response): Promise<vo
       }
     });
   } catch (error: any) {
+    console.error('Error in getCandidates:', error);
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to retrieve candidates'
     });
   }
 };
+
+// Export alias for backward compatibility
+export const applyToJob = applyForJob;

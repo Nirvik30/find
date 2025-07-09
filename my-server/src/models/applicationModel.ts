@@ -1,46 +1,39 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IApplication extends Document {
-  jobId: mongoose.Schema.Types.ObjectId;
-  applicantId: mongoose.Schema.Types.ObjectId;
-  resumeId: mongoose.Schema.Types.ObjectId;
-  coverLetter?: string;
+  jobId: mongoose.Types.ObjectId;
+  applicantId: mongoose.Types.ObjectId;
+  resumeId: mongoose.Types.ObjectId;
+  coverLetter: string;
   status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected' | 'withdrawn';
   appliedDate: Date;
   lastUpdated: Date;
-  nextAction?: string;
-  priority: 'high' | 'medium' | 'low';
-  notes?: string[];
-  matchScore?: number;
-  interviews?: {
-    id: string;
-    type: 'phone' | 'video' | 'in-person';
-    date: Date;
-    duration: number;
-    interviewers: string[];
-    status: 'scheduled' | 'completed' | 'canceled' | 'no-show';
-    feedback?: string;
-    rating?: number;
-  }[];
+  priority: 'low' | 'medium' | 'high';
+  matchScore: number;
+  notes?: string;
 }
 
 const applicationSchema = new Schema<IApplication>({
   jobId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Job',
-    required: true
+    required: [true, 'Job ID is required']
   },
   applicantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: [true, 'Applicant ID is required']
   },
   resumeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Resume',
-    required: true
+    required: [true, 'Resume ID is required']
   },
-  coverLetter: String,
+  coverLetter: {
+    type: String,
+    required: [true, 'Cover letter is required'],
+    trim: true
+  },
   status: {
     type: String,
     enum: ['pending', 'reviewing', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn'],
@@ -54,52 +47,28 @@ const applicationSchema = new Schema<IApplication>({
     type: Date,
     default: Date.now
   },
-  nextAction: String,
   priority: {
     type: String,
-    enum: ['high', 'medium', 'low'],
+    enum: ['low', 'medium', 'high'],
     default: 'medium'
   },
-  notes: [String],
-  matchScore: Number,
-  interviews: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      type: {
-        type: String,
-        enum: ['phone', 'video', 'in-person'],
-        required: true
-      },
-      date: {
-        type: Date,
-        required: true
-      },
-      duration: {
-        type: Number,
-        required: true
-      },
-      interviewers: {
-        type: [String],
-        required: true
-      },
-      status: {
-        type: String,
-        enum: ['scheduled', 'completed', 'canceled', 'no-show'],
-        default: 'scheduled'
-      },
-      feedback: String,
-      rating: {
-        type: Number,
-        min: 1,
-        max: 5
-      }
-    }
-  ]
+  matchScore: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 70
+  },
+  notes: {
+    type: String,
+    trim: true
+  }
 }, {
   timestamps: true
 });
+
+// Index for efficient queries
+applicationSchema.index({ jobId: 1, applicantId: 1 });
+applicationSchema.index({ applicantId: 1, appliedDate: -1 });
+applicationSchema.index({ jobId: 1, status: 1 });
 
 export default mongoose.model<IApplication>('Application', applicationSchema);

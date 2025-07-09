@@ -1,22 +1,27 @@
 import express from 'express';
-import * as applicationController from '../controllers/applicationController';
+import {
+  applyForJob,
+  getMyApplications,
+  withdrawApplication,
+  getApplicationsByJob,
+  updateApplicationStatus,
+  getCandidates
+} from '../controllers/applicationController';
 import { protect, restrictTo } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// All application routes require authentication
+// Apply protection to all routes
 router.use(protect);
 
 // Applicant routes
-router.get('/my-applications', restrictTo('applicant'), applicationController.getMyApplications);
-router.post('/:jobId', restrictTo('applicant'), applicationController.applyForJob);
-router.patch('/:id/withdraw', restrictTo('applicant'), applicationController.withdrawApplication);
+router.post('/:jobId', restrictTo('applicant'), applyForJob);
+router.get('/my-applications', restrictTo('applicant'), getMyApplications);
+router.patch('/:id/withdraw', restrictTo('applicant'), withdrawApplication);
 
 // Recruiter routes
-router.get('/job/:jobId', restrictTo('recruiter'), applicationController.getApplicationsByJob);
-router.get('/stats', restrictTo('recruiter'), applicationController.getApplicationStats);
-router.patch('/:id/status', restrictTo('recruiter'), applicationController.updateApplicationStatus);
-router.post('/:id/interview', restrictTo('recruiter'), applicationController.scheduleInterview);
-router.get('/candidates', restrictTo('recruiter'), applicationController.getCandidates);
+router.get('/job/:jobId', restrictTo('recruiter'), getApplicationsByJob);
+router.patch('/:id/status', restrictTo('recruiter'), updateApplicationStatus);
+router.get('/candidates', restrictTo('recruiter'), getCandidates);
 
 export default router;

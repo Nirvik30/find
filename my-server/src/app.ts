@@ -5,7 +5,6 @@ import path from 'path';
 import dotenv from 'dotenv';
 
 // Import routes
-import homeRoutes from './routes/homeRoutes';
 import authRoutes from './routes/authRoutes';
 import jobRoutes from './routes/jobRoutes';
 import applicationRoutes from './routes/applicationRoutes';
@@ -33,7 +32,6 @@ app.use(morgan('dev'));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
-app.use('/', homeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/applications', applicationRoutes);

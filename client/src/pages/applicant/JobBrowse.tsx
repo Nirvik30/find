@@ -73,7 +73,11 @@ export default function JobBrowse() {
       if (typeFilter && typeFilter !== 'all') params.type = typeFilter;
       if (experienceFilter && experienceFilter !== 'all') params.experience = experienceFilter;
       
+      console.log('Fetching jobs with params:', params);
+      
       const response = await api.get('/jobs', { params });
+      console.log('Jobs API response:', response.data);
+      
       const jobsData = response.data.data.jobs;
       
       // Map the backend data to frontend format
@@ -93,6 +97,7 @@ export default function JobBrowse() {
         saved: false // This should come from user's saved jobs
       }));
       
+      console.log('Mapped jobs:', mappedJobs);
       setJobs(mappedJobs);
       setLoading(false);
     } catch (error) {
