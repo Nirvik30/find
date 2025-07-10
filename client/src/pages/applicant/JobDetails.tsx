@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -33,7 +33,9 @@ import {
   Send,
   AlertCircle,
   CheckCircle,
-  FileText
+  FileText,
+  Upload,
+  X
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import api from '@/lib/api';
@@ -64,14 +66,23 @@ interface Job {
 interface Resume {
   id: string;
   name: string;
-  template: string;
+  type: 'uploaded' | 'created';
   isDefault: boolean;
+  fileName?: string;
+}
+
+interface UploadedFile {
+  id: string;
+  name: string;
+  file: File;
 }
 
 export default function JobDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [job, setJob] = useState<Job | null>(null);
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +90,8 @@ export default function JobDetails() {
   const [showApplicationDialog, setShowApplicationDialog] = useState(false);
   const [selectedResumeId, setSelectedResumeId] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -114,7 +127,7 @@ export default function JobDetails() {
         status: jobData.status,
         isUrgent: jobData.isUrgent || false,
         saved: false,
-        applied: false // Will be updated by checkApplicationStatus
+        applied: false
       });
       
       setLoading(false);
@@ -130,8 +143,9 @@ export default function JobDetails() {
       setResumes(response.data.data.resumes.map((resume: any) => ({
         id: resume._id,
         name: resume.name,
-        template: resume.template,
-        isDefault: resume.isDefault
+        type: resume.type || 'created',
+        isDefault: resume.isDefault,
+        fileName: resume.fileName
       })));
     } catch (error) {
       console.error('Error fetching resumes:', error);
@@ -143,7 +157,6 @@ export default function JobDetails() {
       const response = await api.get('/applications/my-applications');
       const appliedJobIds = response.data.data.applications.map((app: any) => app.jobId._id);
       
-      // Update job applied status
       setJob(prevJob => 
         prevJob ? { ...prevJob, applied: appliedJobIds.includes(jobId) } : null
       );
@@ -179,15 +192,69 @@ export default function JobDetails() {
     }
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const newFiles: UploadedFile[] = [];
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Validate file type
+        const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (!validTypes.includes(file.type)) {
+          alert('Please upload PDF or Word documents only');
+          continue;
+        }
+        
+        // Validate file size (5MB limit)
+        if (file.size > 5 * 1024 * 1024) {
+          alert('File size must be less than 5MB');
+          continue;
+        }
+        
+        newFiles.push({
+          id: Date.now().toString() + i,
+          name: file.name,
+          file
+        });
+      }
+      
+      setUploadedFiles(prev => [...prev, ...newFiles]);
+    }
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeUploadedFile = (fileId: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
   const handleApplicationSubmit = async () => {
-    if (!job || !selectedResumeId || applying) return;
+    if (!job || (!selectedResumeId && uploadedFiles.length === 0) || applying) return;
     
     try {
       setApplying(true);
       
-      await api.post(`/applications/${job.id}`, {
-        resumeId: selectedResumeId,
-        coverLetter: coverLetter || 'I am interested in this position and would like to apply.'
+      const formData = new FormData();
+      formData.append('coverLetter', coverLetter || 'I am interested in this position and would like to apply.');
+      
+      if (selectedResumeId) {
+        formData.append('resumeId', selectedResumeId);
+      }
+      
+      // Add uploaded files
+      uploadedFiles.forEach((uploadedFile, index) => {
+        formData.append('documents', uploadedFile.file);
+      });
+      
+      await api.post(`/applications/${job.id}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
       
       setJob({ ...job, applied: true, applicants: job.applicants + 1 });
@@ -197,6 +264,7 @@ export default function JobDetails() {
       // Reset form
       setSelectedResumeId('');
       setCoverLetter('');
+      setUploadedFiles([]);
       
       alert('Application submitted successfully!');
     } catch (error: any) {
@@ -209,15 +277,17 @@ export default function JobDetails() {
   };
 
   const openApplicationDialog = () => {
-    if (resumes.length === 0) {
-      alert('Please create a resume first before applying');
+    if (resumes.length === 0 && uploadedFiles.length === 0) {
+      alert('Please create a resume or upload documents before applying');
       navigate('/applicant/resumes');
       return;
     }
     
     // Set default resume if available
     const defaultResume = resumes.find(r => r.isDefault) || resumes[0];
-    setSelectedResumeId(defaultResume.id);
+    if (defaultResume) {
+      setSelectedResumeId(defaultResume.id);
+    }
     setShowApplicationDialog(true);
   };
 
@@ -248,6 +318,16 @@ export default function JobDetails() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx"
+        multiple
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
       {/* Header */}
       <div className="border-b border-border bg-card/50 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-8">
@@ -297,12 +377,7 @@ export default function JobDetails() {
             {/* Job Overview */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Job Overview</CardTitle>
-                  <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">
-                    {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                  </Badge>
-                </div>
+                <CardTitle>Job Overview</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -371,25 +446,6 @@ export default function JobDetails() {
               </CardContent>
             </Card>
 
-            {/* Responsibilities */}
-            {job.responsibilities.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Key Responsibilities</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {job.responsibilities.map((responsibility, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
-                        <span className="text-foreground">{responsibility}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
             {/* Requirements */}
             {job.requirements.length > 0 && (
               <Card>
@@ -426,25 +482,6 @@ export default function JobDetails() {
                 </CardContent>
               </Card>
             )}
-
-            {/* Benefits */}
-            {job.benefits.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Benefits & Perks</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {job.benefits.map((benefit, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                        <span className="text-foreground">{benefit}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Sidebar */}
@@ -459,7 +496,7 @@ export default function JobDetails() {
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <h3 className="text-lg font-semibold text-foreground mb-2">Application Submitted</h3>
                         <p className="text-muted-foreground mb-4">
-                          Your application has been submitted successfully. We'll notify you of any updates.
+                          Your application has been submitted successfully.
                         </p>
                         <Button variant="outline" asChild className="w-full">
                           <Link to="/applicant/applications">
@@ -489,46 +526,105 @@ export default function JobDetails() {
                             )}
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[500px]">
+                        <DialogContent className="sm:max-w-[600px] bg-background border border-border">
                           <DialogHeader>
-                            <DialogTitle>Apply for {job.title}</DialogTitle>
-                            <DialogDescription>
+                            <DialogTitle className="text-xl">Apply for {job.title}</DialogTitle>
+                            <DialogDescription className="text-base">
                               Submit your application for this position at {job.company}
                             </DialogDescription>
                           </DialogHeader>
-                          <div className="space-y-4">
-                            <div>
-                              <Label htmlFor="resume">Select Resume</Label>
-                              <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Choose a resume" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {resumes.map((resume) => (
-                                    <SelectItem key={resume.id} value={resume.id}>
+                          <div className="space-y-6">
+                            {/* Resume Selection */}
+                            {resumes.length > 0 && (
+                              <div className="space-y-2">
+                                <Label htmlFor="resume" className="text-sm font-medium">Select Resume *</Label>
+                                <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Choose a resume" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {resumes.map((resume) => (
+                                      <SelectItem key={resume.id} value={resume.id}>
+                                        <div className="flex items-center gap-2">
+                                          <FileText className="h-4 w-4" />
+                                          <span>{resume.name}</span>
+                                          {resume.isDefault && (
+                                            <Badge variant="secondary" className="text-xs">Default</Badge>
+                                          )}
+                                          {resume.type === 'uploaded' && (
+                                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
+                                              Uploaded
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+
+                            {/* Additional Documents */}
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Additional Documents (Optional)</Label>
+                              <div className="border-2 border-dashed border-border rounded-lg p-4 bg-muted/30">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => fileInputRef.current?.click()}
+                                  className="w-full"
+                                  size="sm"
+                                >
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Upload Additional Documents
+                                </Button>
+                                <p className="text-xs text-muted-foreground mt-2 text-center">
+                                  PDF or Word documents, max 5MB each
+                                </p>
+                              </div>
+                              
+                              {/* Uploaded Files List */}
+                              {uploadedFiles.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                  <Label className="text-sm font-medium">Uploaded Documents:</Label>
+                                  {uploadedFiles.map((file) => (
+                                    <div key={file.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md border">
                                       <div className="flex items-center gap-2">
-                                        <FileText className="h-4 w-4" />
-                                        {resume.name}
-                                        {resume.isDefault && (
-                                          <Badge variant="secondary" className="text-xs">Default</Badge>
-                                        )}
+                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm text-foreground">{file.name}</span>
+                                        <Badge variant="outline" className="text-xs bg-green-50 text-green-600 border-green-200">
+                                          Uploaded
+                                        </Badge>
                                       </div>
-                                    </SelectItem>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => removeUploadedFile(file.id)}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   ))}
-                                </SelectContent>
-                              </Select>
+                                </div>
+                              )}
                             </div>
-                            <div>
-                              <Label htmlFor="coverLetter">Cover Letter</Label>
+
+                            {/* Cover Letter */}
+                            <div className="space-y-2">
+                              <Label htmlFor="coverLetter" className="text-sm font-medium">Cover Letter</Label>
                               <Textarea
                                 id="coverLetter"
                                 placeholder="Write a brief cover letter explaining why you're interested in this position..."
                                 value={coverLetter}
                                 onChange={(e) => setCoverLetter(e.target.value)}
                                 rows={4}
+                                className="resize-none"
                               />
                             </div>
-                            <div className="flex gap-2">
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3 pt-4">
                               <Button 
                                 variant="outline" 
                                 onClick={() => setShowApplicationDialog(false)}
@@ -538,10 +634,20 @@ export default function JobDetails() {
                               </Button>
                               <Button 
                                 onClick={handleApplicationSubmit}
-                                disabled={!selectedResumeId || applying}
+                                disabled={(!selectedResumeId && uploadedFiles.length === 0) || applying}
                                 className="flex-1"
                               >
-                                {applying ? 'Submitting...' : 'Submit Application'}
+                                {applying ? (
+                                  <>
+                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent mr-2"></div>
+                                    Submitting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Send className="h-4 w-4 mr-2" />
+                                    Submit Application
+                                  </>
+                                )}
                               </Button>
                             </div>
                           </div>
@@ -552,33 +658,6 @@ export default function JobDetails() {
                 </CardContent>
               </Card>
             )}
-
-            {/* Similar Jobs */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Similar Jobs</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {[
-                    { title: 'Frontend Engineer', company: 'StartupXYZ', match: 87 },
-                    { title: 'React Developer', company: 'TechFlow', match: 82 },
-                    { title: 'UI Developer', company: 'DesignCorp', match: 79 }
-                  ].map((similarJob, index) => (
-                    <div key={index} className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer">
-                      <h4 className="font-semibold text-foreground text-sm">{similarJob.title}</h4>
-                      <p className="text-muted-foreground text-xs">{similarJob.company}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <span className="text-xs text-muted-foreground">Match:</span>
-                        <Badge variant="outline" className="text-xs">
-                          {similarJob.match}%
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </div>

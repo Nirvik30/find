@@ -31,7 +31,8 @@ import {
   MoreHorizontal,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Users
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -396,31 +397,16 @@ export default function JobPostList() {
                       <p className="text-lg font-semibold text-foreground">{job.views}</p>
                       <p className="text-xs text-muted-foreground">Views</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2 mt-2">
                       <Button 
                         variant="outline" 
                         size="sm"
                         asChild
                       >
-                        <Link to={`/recruiter/job-post/${job.id}/preview`}>
-                          <Eye className="h-4 w-4" />
+                        <Link to={`/recruiter/job-posts/${job.id}`}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
                         </Link>
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        asChild
-                      >
-                        <Link to={`/recruiter/job-post/${job.id}/edit`}>
-                          <Edit className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => deleteJobPost(job.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
                       </Button>
                       <Button 
                         variant="secondary" 
@@ -428,7 +414,8 @@ export default function JobPostList() {
                         asChild
                       >
                         <Link to={`/recruiter/applications?jobId=${job.id}`}>
-                          View Applicants
+                          <Users className="h-4 w-4 mr-2" />
+                          {job.applications > 0 ? `${job.applications} Applicants` : "Applicants"}
                         </Link>
                       </Button>
                     </div>

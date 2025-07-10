@@ -164,6 +164,7 @@ function App() {
                   />
                 }
               />
+              <Route path="/applicant/resumes" element={<ResumeManager />} />
               
               {/* Recruiter Routes */}
               <Route

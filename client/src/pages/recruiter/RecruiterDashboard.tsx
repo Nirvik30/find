@@ -325,10 +325,17 @@ export default function RecruiterDashboard() {
           <div className="lg:col-span-1">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Recent Applications
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5" />
+                    Recent Applications
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/recruiter/applications">
+                      View All
+                    </Link>
+                  </Button>
+                </div>
                 <CardDescription>
                   Latest candidates who applied
                 </CardDescription>
@@ -337,9 +344,10 @@ export default function RecruiterDashboard() {
                 <div className="space-y-4">
                   {recentApplications.length > 0 ? (
                     recentApplications.map((application) => (
-                      <div 
+                      <Link 
                         key={application.id}
-                        className="p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
+                        to={`/recruiter/applications?candidateId=${application.id}`}
+                        className="block p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
@@ -373,17 +381,12 @@ export default function RecruiterDashboard() {
                             </p>
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     ))
                   ) : (
-                    <div className="text-center py-8">
-                      <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground mb-4">No applications yet</p>
-                      <Button asChild>
-                        <Link to="/recruiter/job-post/new">
-                          Post Your First Job
-                        </Link>
-                      </Button>
+                    <div className="text-center py-6">
+                      <Users className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-muted-foreground">No applications yet</p>
                     </div>
                   )}
                 </div>
@@ -393,7 +396,7 @@ export default function RecruiterDashboard() {
                   asChild
                 >
                   <Link to="/recruiter/applications">
-                    View All Applications
+                    Manage All Applications
                   </Link>
                 </Button>
               </CardContent>

@@ -1,27 +1,35 @@
 import express from 'express';
-import * as resumeController from '../controllers/resumeController';
+import { 
+  getUserResumes, 
+  getResume, 
+  createResume, 
+  updateResume, 
+  deleteResume, 
+  setDefaultResume, 
+  downloadResume,
+  uploadResume,
+  upload
+} from '../controllers/resumeController';
 import { protect } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// All resume routes require authentication
+// Protect all routes
 router.use(protect);
 
-// Get all resumes for the logged-in user and create new resume
+// Resume routes
 router.route('/')
-  .get(resumeController.getUserResumes)
-  .post(resumeController.createResume);
+  .get(getUserResumes)
+  .post(createResume);
 
-// Get, update, delete specific resume by ID
+router.post('/upload', upload.single('resume'), uploadResume);
+
 router.route('/:id')
-  .get(resumeController.getResume)
-  .patch(resumeController.updateResume)
-  .delete(resumeController.deleteResume);
+  .get(getResume)
+  .patch(updateResume)
+  .delete(deleteResume);
 
-// Set a resume as default
-router.patch('/:id/default', resumeController.setDefaultResume);
-
-// Track resume download
-router.patch('/:id/download', resumeController.downloadResume);
+router.patch('/:id/default', setDefaultResume);
+router.patch('/:id/download', downloadResume);
 
 export default router;

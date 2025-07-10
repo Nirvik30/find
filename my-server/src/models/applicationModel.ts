@@ -3,36 +3,40 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IApplication extends Document {
   jobId: mongoose.Types.ObjectId;
   applicantId: mongoose.Types.ObjectId;
-  resumeId: mongoose.Types.ObjectId;
+  resumeId?: mongoose.Types.ObjectId;
   coverLetter: string;
   status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected' | 'withdrawn';
   appliedDate: Date;
   lastUpdated: Date;
-  priority: 'low' | 'medium' | 'high';
-  matchScore: number;
+  documents?: Array<{
+    name: string;
+    url: string;
+    size: number;
+  }>;
   notes?: string;
+  priority?: 'low' | 'normal' | 'high';
+  matchScore?: number;
 }
 
 const applicationSchema = new Schema<IApplication>({
   jobId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'Job',
-    required: [true, 'Job ID is required']
+    required: true
   },
   applicantId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Applicant ID is required']
+    required: true
   },
   resumeId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'Resume',
-    required: [true, 'Resume ID is required']
+    required: false
   },
   coverLetter: {
     type: String,
-    required: [true, 'Cover letter is required'],
-    trim: true
+    default: ''
   },
   status: {
     type: String,
@@ -47,28 +51,30 @@ const applicationSchema = new Schema<IApplication>({
     type: Date,
     default: Date.now
   },
+  documents: [{
+    name: String,
+    url: String,
+    size: Number
+  }],
+  notes: String,
   priority: {
     type: String,
-    enum: ['low', 'medium', 'high'],
-    default: 'medium'
+    enum: ['low', 'normal', 'high'],
+    default: 'normal'
   },
   matchScore: {
     type: Number,
+    default: 0,
     min: 0,
-    max: 100,
-    default: 70
-  },
-  notes: {
-    type: String,
-    trim: true
+    max: 100
   }
 }, {
   timestamps: true
 });
 
-// Index for efficient queries
-applicationSchema.index({ jobId: 1, applicantId: 1 });
-applicationSchema.index({ applicantId: 1, appliedDate: -1 });
-applicationSchema.index({ jobId: 1, status: 1 });
+// Index for faster queries
+applicationSchema.index({ jobId: 1, applicantId: 1 }, { unique: true });
+applicationSchema.index({ applicantId: 1 });
+applicationSchema.index({ jobId: 1 });
 
 export default mongoose.model<IApplication>('Application', applicationSchema);

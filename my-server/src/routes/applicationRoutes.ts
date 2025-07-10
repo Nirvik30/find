@@ -1,27 +1,23 @@
 import express from 'express';
 import {
-  applyForJob,
+  applyToJob,
   getMyApplications,
-  withdrawApplication,
-  getApplicationsByJob,
+  getCandidates,
   updateApplicationStatus,
-  getCandidates
+  uploadDocuments
 } from '../controllers/applicationController';
 import { protect, restrictTo } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// Apply protection to all routes
+// Protect all routes
 router.use(protect);
 
-// Applicant routes
-router.post('/:jobId', restrictTo('applicant'), applyForJob);
-router.get('/my-applications', restrictTo('applicant'), getMyApplications);
-router.patch('/:id/withdraw', restrictTo('applicant'), withdrawApplication);
-
-// Recruiter routes
-router.get('/job/:jobId', restrictTo('recruiter'), getApplicationsByJob);
-router.patch('/:id/status', restrictTo('recruiter'), updateApplicationStatus);
+// Application routes
+router.get('/my-applications', getMyApplications);
 router.get('/candidates', restrictTo('recruiter'), getCandidates);
+
+router.post('/:jobId', uploadDocuments.array('documents', 5), applyToJob);
+router.patch('/:id/status', restrictTo('recruiter'), updateApplicationStatus);
 
 export default router;

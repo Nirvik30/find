@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   Search,
   Calendar,
@@ -32,14 +41,12 @@ import {
   ArrowLeft,
   AlertCircle,
   Filter,
-  ChevronDown,
-  ChevronRight,
-  MoreHorizontal,
-  Eye,
   Star,
   StarOff,
   Download,
-  Briefcase
+  Briefcase,
+  Mail,
+  MapPin
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import api from '@/lib/api';
@@ -58,7 +65,8 @@ interface Candidate {
   appliedDate: string;
   lastActivity?: string;
   resumeUrl?: string;
-  coverLetterUrl?: string;
+  coverLetter?: string;
+  documents?: Array<{name: string, url: string}>;
   jobId: string;
   jobTitle: string;
   company: string;
@@ -67,19 +75,12 @@ interface Candidate {
   experience: string;
   education: string;
   notes?: string[];
-  interviews?: Interview[];
 }
 
-interface Interview {
+interface Job {
   id: string;
-  candidateId: string;
-  type: 'phone' | 'video' | 'in-person';
-  date: string;
-  duration: number; // minutes
-  interviewers: string[];
-  status: 'scheduled' | 'completed' | 'canceled' | 'no-show';
-  feedback?: string;
-  rating?: number;
+  title: string;
+  applications: number;
 }
 
 export default function ApplicationsList() {
@@ -87,57 +88,131 @@ export default function ApplicationsList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [jobFilter, setJobFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState('recent');
   const [showFilters, setShowFilters] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('kanban');
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-  const [jobs, setJobs] = useState<{ id: string; title: string; applications: number }[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
 
   useEffect(() => {
-    // Get jobId from URL if it exists
+    // Get jobId and candidateId from URL if they exist
     const jobIdFromUrl = searchParams.get('jobId');
+    const candidateIdFromUrl = searchParams.get('candidateId');
+    
     if (jobIdFromUrl) {
       setJobFilter(jobIdFromUrl);
     }
     
-    fetchCandidates();
-    fetchJobs();
-  }, [searchParams]);
+    // First load all data
+    Promise.all([fetchCandidates(), fetchJobs()])
+      .then(() => {
+        // After data is loaded, try to select candidate from URL
+        if (candidateIdFromUrl) {
+          setCandidates(prevCandidates => {
+            const candidate = prevCandidates.find(c => c.id === candidateIdFromUrl);
+            if (candidate) {
+              setSelectedCandidate(candidate);
+            }
+            return prevCandidates;
+          });
+        }
+      })
+      .catch(err => {
+        console.error("Failed to initialize data:", err);
+        setError("Failed to initialize application data");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
 
   const fetchCandidates = async () => {
     try {
       setLoading(true);
+      setError(null);
       
       // Build query parameters
-      const params: any = {};
+      const params: Record<string, string> = {};
       if (jobFilter) params.jobId = jobFilter;
       if (statusFilter) params.status = statusFilter;
       if (searchTerm) params.search = searchTerm;
       
       const response = await api.get('/applications/candidates', { params });
-      setCandidates(response.data.data.candidates);
-      setLoading(false);
+      
+      if (!response?.data?.data?.candidates) {
+        // Handle empty data properly
+        setCandidates([]);
+        setSelectedCandidate(null);
+        return [];
+      }
+      
+      // Process the candidates data
+      const candidatesData = response.data.data.candidates.map((candidate: any) => ({
+        id: candidate.id || '',
+        name: candidate.name || 'Unknown Candidate',
+        email: candidate.email || '',
+        phone: candidate.phone || '',
+        avatar: candidate.avatar || '',
+        location: candidate.location || 'Not specified',
+        matchScore: candidate.matchScore || 0,
+        starred: candidate.starred || false,
+        status: candidate.status || 'pending',
+        appliedDate: candidate.appliedDate || new Date().toISOString(),
+        lastActivity: candidate.lastActivity || candidate.appliedDate || new Date().toISOString(),
+        resumeUrl: candidate.resumeUrl || '',
+        coverLetter: candidate.coverLetter || '',
+        documents: Array.isArray(candidate.documents) ? candidate.documents : [],
+        jobId: candidate.jobId || '',
+        jobTitle: candidate.jobTitle || 'Unknown Job',
+        company: candidate.company || '',
+        jobMatch: candidate.jobMatch || 0,
+        skills: Array.isArray(candidate.skills) ? candidate.skills : [],
+        experience: candidate.experience || 'Not specified',
+        education: candidate.education || 'Not specified',
+        notes: Array.isArray(candidate.notes) ? candidate.notes : []
+      }));
+      
+      setCandidates(candidatesData);
+      
+      // If there are candidates and none selected yet, select the first one by default
+      if (candidatesData.length > 0 && !selectedCandidate) {
+        setSelectedCandidate(candidatesData[0]);
+      }
+      
+      return candidatesData;
     } catch (error) {
       console.error('Error fetching candidates:', error);
-      setLoading(false);
+      setError('Failed to load candidates. Please try again.');
+      setCandidates([]);
+      return [];
     }
   };
 
   const fetchJobs = async () => {
     try {
       const response = await api.get('/jobs/recruiter/dashboard');
+      
+      if (!response?.data?.data?.jobs) {
+        setJobs([]);
+        return [];
+      }
+      
       const jobsList = response.data.data.jobs.map((job: any) => ({
-        id: job._id,
-        title: job.title,
-        applications: job.applications
+        id: job._id || job.id || '',
+        title: job.title || 'Untitled Job',
+        applications: job.applications || 0
       }));
+      
       setJobs(jobsList);
+      return jobsList;
     } catch (error) {
       console.error('Error fetching jobs:', error);
+      setJobs([]);
+      return [];
     }
   };
 
@@ -149,23 +224,40 @@ export default function ApplicationsList() {
           : candidate
       )
     );
+    
+    // Update the selected candidate if it's the one that was starred
+    if (selectedCandidate && selectedCandidate.id === id) {
+      setSelectedCandidate({
+        ...selectedCandidate,
+        starred: !selectedCandidate.starred
+      });
+    }
   };
 
   const updateCandidateStatus = async (applicationId: string, status: string) => {
     try {
       await api.patch(`/applications/${applicationId}/status`, { status });
+      
       // Update the local state to reflect the change
       setCandidates(
         candidates.map((candidate) =>
-          candidate.id === applicationId ? { ...candidate, status } : candidate
+          candidate.id === applicationId ? { ...candidate, status: status as any } : candidate
         )
       );
+      
+      // Update the selected candidate if it's the one that was updated
+      if (selectedCandidate && selectedCandidate.id === applicationId) {
+        setSelectedCandidate({
+          ...selectedCandidate,
+          status: status as any
+        });
+      }
     } catch (error) {
       console.error('Error updating application status:', error);
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): string => {
     switch (status) {
       case 'pending':
         return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
@@ -201,32 +293,6 @@ export default function ApplicationsList() {
       default:
         return <AlertCircle className="h-4 w-4 text-gray-500" />;
     }
-  };
-
-  const getInterviewTypeIcon = (type: string) => {
-    switch (type) {
-      case 'phone':
-        return <Phone className="h-4 w-4 text-blue-500" />;
-      case 'video':
-        return <Video className="h-4 w-4 text-purple-500" />;
-      case 'in-person':
-        return <Users className="h-4 w-4 text-green-500" />;
-      default:
-        return <Calendar className="h-4 w-4 text-gray-500" />;
-    }
-  };
-
-  const formatInterviewTime = (date: string, duration: number) => {
-    const startTime = new Date(date);
-    const endTime = new Date(startTime.getTime() + duration * 60000);
-    
-    const options: Intl.DateTimeFormatOptions = { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    };
-    
-    return `${startTime.toLocaleTimeString([], options)} - ${endTime.toLocaleTimeString([], options)}`;
   };
 
   const filteredCandidates = candidates.filter(candidate => {
@@ -271,26 +337,17 @@ export default function ApplicationsList() {
     return 0;
   });
 
-  // Group candidates by status for kanban view
-  const groupedCandidates = {
-    pending: sortedCandidates.filter(c => c.status === 'pending'),
-    reviewing: sortedCandidates.filter(c => c.status === 'reviewing'),
-    interview: sortedCandidates.filter(c => c.status === 'interview'),
-    offer: sortedCandidates.filter(c => c.status === 'offer'),
-    accepted: sortedCandidates.filter(c => c.status === 'accepted'),
-    rejected: sortedCandidates.filter(c => c.status === 'rejected')
-  };
-
-  const candidateCard = (candidate: Candidate) => (
+  // Render a candidate card for the sidebar
+  const renderCandidateItem = (candidate: Candidate) => (
     <div
       key={candidate.id}
-      className={`p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer ${
-        selectedCandidate?.id === candidate.id ? 'bg-accent border-primary' : ''
+      className={`p-4 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer ${
+        selectedCandidate?.id === candidate.id ? 'bg-accent border-primary' : 'border-border'
       }`}
       onClick={() => setSelectedCandidate(candidate)}
     >
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
           {candidate.avatar ? (
             <img
               src={candidate.avatar}
@@ -301,13 +358,16 @@ export default function ApplicationsList() {
             <Users className="h-5 w-5 text-muted-foreground" />
           )}
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-foreground text-sm">{candidate.name}</h4>
-            <button onClick={(e) => {
-              e.stopPropagation();
-              toggleStarCandidate(candidate.id);
-            }}>
+            <h4 className="font-semibold text-foreground text-sm truncate">{candidate.name}</h4>
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleStarCandidate(candidate.id);
+              }}
+            >
               {candidate.starred ? (
                 <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
               ) : (
@@ -319,20 +379,27 @@ export default function ApplicationsList() {
             <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
               {candidate.matchScore}% Match
             </Badge>
-            <Badge variant="outline" className="text-xs">
-              {candidate.jobTitle}
+            <Badge 
+              variant="outline"
+              className={`text-xs ${getStatusColor(candidate.status)}`}
+            >
+              {candidate.status.charAt(0).toUpperCase() + candidate.status.slice(1)}
             </Badge>
           </div>
-          <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+            <Calendar className="h-3 w-3" />
             <span>{new Date(candidate.appliedDate).toLocaleDateString()}</span>
-            {candidate.lastActivity && (
-              <span>Last activity: {new Date(candidate.lastActivity).toLocaleDateString()}</span>
-            )}
           </div>
         </div>
       </div>
     </div>
   );
+
+  const handleRefresh = () => {
+    setLoading(true);
+    Promise.all([fetchCandidates(), fetchJobs()])
+      .finally(() => setLoading(false));
+  };
 
   if (loading) {
     return (
@@ -340,6 +407,19 @@ export default function ApplicationsList() {
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
           <p className="text-muted-foreground">Loading applications...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Error Loading Applications</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={handleRefresh}>Try Again</Button>
         </div>
       </div>
     );
@@ -367,9 +447,6 @@ export default function ApplicationsList() {
             </div>
             <div className="flex gap-3">
               <ThemeToggle />
-              <Button variant="outline" onClick={() => setViewMode(viewMode === 'list' ? 'kanban' : 'list')}>
-                {viewMode === 'list' ? 'Kanban View' : 'List View'}
-              </Button>
             </div>
           </div>
         </div>
@@ -481,191 +558,17 @@ export default function ApplicationsList() {
           </p>
         </div>
 
-        {/* Kanban Board View */}
-        {viewMode === 'kanban' && (
-          <div className="flex overflow-x-auto pb-4 space-x-4">
-            {/* Column: Pending */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-yellow-500" />
-                    <h3 className="font-semibold text-foreground">Pending</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/20">
-                    {groupedCandidates.pending.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.pending.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.pending.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No pending applications
-                    </div>
-                  )}
-                </div>
+        {/* Main Content: Split View with List and Details */}
+        {filteredCandidates.length > 0 ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Side: Candidates List */}
+            <div className="lg:col-span-1 space-y-4">
+              <div className="space-y-2">
+                {sortedCandidates.map(candidate => renderCandidateItem(candidate))}
               </div>
             </div>
-
-            {/* Column: Reviewing */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-blue-500" />
-                    <h3 className="font-semibold text-foreground">Reviewing</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20">
-                    {groupedCandidates.reviewing.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.reviewing.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.reviewing.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No applications under review
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Column: Interview */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-purple-500" />
-                    <h3 className="font-semibold text-foreground">Interview</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20">
-                    {groupedCandidates.interview.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.interview.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.interview.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No interviews scheduled
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Column: Offer */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-orange-500" />
-                    <h3 className="font-semibold text-foreground">Offer</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20">
-                    {groupedCandidates.offer.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.offer.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.offer.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No offers extended
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Column: Accepted */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5 text-green-500" />
-                    <h3 className="font-semibold text-foreground">Accepted</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">
-                    {groupedCandidates.accepted.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.accepted.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.accepted.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No accepted offers
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Column: Rejected */}
-            <div className="flex-shrink-0 w-[300px]">
-              <div className="bg-card rounded-lg border border-border p-4 h-full">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <XCircle className="h-5 w-5 text-red-500" />
-                    <h3 className="font-semibold text-foreground">Rejected</h3>
-                  </div>
-                  <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20">
-                    {groupedCandidates.rejected.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  {groupedCandidates.rejected.map(candidate => candidateCard(candidate))}
-                  {groupedCandidates.rejected.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground text-sm">
-                      No rejected applications
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* List View */}
-        {viewMode === 'list' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left Panel: List of Candidates */}
-            <div className="lg:col-span-1">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Candidates</CardTitle>
-                  <CardDescription>
-                    {filteredCandidates.length} applicant{filteredCandidates.length !== 1 ? 's' : ''} found
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {filteredCandidates.length > 0 ? (
-                      filteredCandidates.map(candidate => candidateCard(candidate))
-                    ) : (
-                      <div className="text-center py-6">
-                        <Users className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                        <h3 className="text-lg font-semibold text-foreground mb-2">No candidates found</h3>
-                        <p className="text-muted-foreground mb-4">
-                          Try adjusting your search criteria or filters
-                        </p>
-                        <Button 
-                          variant="outline"
-                          onClick={() => {
-                            setSearchTerm('');
-                            setJobFilter('');
-                            setStatusFilter('');
-                            setDateFilter('');
-                          }}
-                        >
-                          Clear All Filters
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Right Panel: Candidate Details */}
+            
+            {/* Right Side: Candidate Details */}
             <div className="lg:col-span-2">
               {selectedCandidate ? (
                 <Card>
@@ -685,7 +588,10 @@ export default function ApplicationsList() {
                       <div>
                         <div className="flex items-center gap-2">
                           <CardTitle>{selectedCandidate.name}</CardTitle>
-                          <button onClick={() => toggleStarCandidate(selectedCandidate.id)}>
+                          <button 
+                            type="button"
+                            onClick={() => toggleStarCandidate(selectedCandidate.id)}
+                          >
                             {selectedCandidate.starred ? (
                               <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
                             ) : (
@@ -726,156 +632,151 @@ export default function ApplicationsList() {
 
                   <CardContent className="space-y-6">
                     {/* Contact Info & Basic Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Contact Information</h3>
-                        <div className="space-y-2">
-                          <p className="text-sm"><span className="font-medium">Email:</span> {selectedCandidate.email}</p>
-                          {selectedCandidate.phone && (
-                            <p className="text-sm"><span className="font-medium">Phone:</span> {selectedCandidate.phone}</p>
-                          )}
-                          <p className="text-sm"><span className="font-medium">Location:</span> {selectedCandidate.location}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-sm font-medium text-muted-foreground mb-2">Contact Information</h3>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Mail className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-sm">{selectedCandidate.email}</p>
+                            </div>
+                            {selectedCandidate.phone && (
+                              <div className="flex items-center gap-2">
+                                <Phone className="h-4 w-4 text-muted-foreground" />
+                                <p className="text-sm">{selectedCandidate.phone}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-sm">{selectedCandidate.location}</p>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Application Details</h3>
-                        <div className="space-y-2">
-                          <p className="text-sm">
-                            <span className="font-medium">Applied for:</span> {selectedCandidate.jobTitle}
-                          </p>
-                          <p className="text-sm">
-                            <span className="font-medium">Applied on:</span> {new Date(selectedCandidate.appliedDate).toLocaleDateString()}
-                          </p>
-                          {selectedCandidate.lastActivity && (
+
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-sm font-medium text-muted-foreground mb-2">Application Details</h3>
+                          <div className="space-y-2">
                             <p className="text-sm">
-                              <span className="font-medium">Last Activity:</span> {new Date(selectedCandidate.lastActivity).toLocaleDateString()}
+                              <span className="font-medium">Applied for:</span> {selectedCandidate.jobTitle}
                             </p>
-                          )}
+                            <p className="text-sm">
+                              <span className="font-medium">Applied on:</span> {new Date(selectedCandidate.appliedDate).toLocaleDateString()}
+                            </p>
+                            {selectedCandidate.lastActivity && (
+                              <p className="text-sm">
+                                <span className="font-medium">Last Activity:</span> {new Date(selectedCandidate.lastActivity).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Resume & Cover Letter */}
-                    <div>
-                      <h3 className="text-sm font-medium text-muted-foreground mb-3">Documents</h3>
-                      <div className="flex flex-wrap gap-2">
+                    {/* Resume & Documents */}
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted-foreground">Documents</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {selectedCandidate.resumeUrl && (
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={selectedCandidate.resumeUrl} target="_blank" rel="noopener noreferrer">
+                          <Button variant="outline" size="sm" asChild className="w-full">
+                            <a 
+                              href={selectedCandidate.resumeUrl.startsWith('http') 
+                                ? selectedCandidate.resumeUrl 
+                                : `${api.defaults.baseURL?.replace('/api', '')}${selectedCandidate.resumeUrl}`
+                              } 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                            >
                               <FileText className="h-4 w-4 mr-2" />
                               View Resume
                             </a>
                           </Button>
                         )}
-                        {selectedCandidate.coverLetterUrl && (
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={selectedCandidate.coverLetterUrl} target="_blank" rel="noopener noreferrer">
-                              <FileText className="h-4 w-4 mr-2" />
-                              View Cover Letter
-                            </a>
-                          </Button>
+                        
+                        {selectedCandidate.coverLetter && (
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm" className="w-full">
+                                <FileText className="h-4 w-4 mr-2" />
+                                View Cover Letter
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[500px]">
+                              <DialogHeader>
+                                <DialogTitle>Cover Letter</DialogTitle>
+                              </DialogHeader>
+                              <div className="p-4 bg-muted/30 rounded-lg">
+                                <p className="text-sm whitespace-pre-wrap">{selectedCandidate.coverLetter}</p>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
                         )}
-                        <Button variant="outline" size="sm">
-                          <Download className="h-4 w-4 mr-2" />
-                          Download All
-                        </Button>
+                        
+                        {/* Additional Documents */}
+                        {selectedCandidate.documents && selectedCandidate.documents.length > 0 && (
+                          <div className="sm:col-span-2 mt-2">
+                            <h4 className="text-sm font-medium mb-2">Additional Documents:</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {selectedCandidate.documents.map((doc, index) => (
+                                <Button key={index} variant="outline" size="sm" asChild>
+                                  <a 
+                                    href={doc.url.startsWith('http') 
+                                      ? doc.url 
+                                      : `${api.defaults.baseURL?.replace('/api', '')}${doc.url}`
+                                    } 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                  >
+                                    <FileText className="h-4 w-4 mr-2" />
+                                    {doc.name || 'Document'}
+                                  </a>
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* Skills & Experience */}
-                    <div>
-                      <h3 className="text-sm font-medium text-muted-foreground mb-3">Skills & Experience</h3>
+                    {(selectedCandidate.skills?.length > 0 || selectedCandidate.experience || selectedCandidate.education) && (
                       <div className="space-y-3">
-                        <div>
-                          <p className="text-sm font-medium mb-1">Skills</p>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedCandidate.skills.map((skill, index) => (
-                              <Badge key={index} variant="secondary">{skill}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium mb-1">Experience</p>
-                          <p className="text-sm">{selectedCandidate.experience}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium mb-1">Education</p>
-                          <p className="text-sm">{selectedCandidate.education}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Interviews */}
-                    {selectedCandidate.interviews && selectedCandidate.interviews.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-3">Interviews</h3>
+                        <h3 className="text-sm font-medium text-muted-foreground">Skills & Experience</h3>
                         <div className="space-y-3">
-                          {selectedCandidate.interviews.map(interview => (
-                            <div 
-                              key={interview.id}
-                              className="p-3 rounded-lg border border-border hover:bg-accent/30 transition-colors"
-                            >
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  {getInterviewTypeIcon(interview.type)}
-                                  <span className="text-sm font-medium">
-                                    {interview.type.charAt(0).toUpperCase() + interview.type.slice(1)} Interview
-                                  </span>
-                                </div>
-                                <Badge 
-                                  variant="outline" 
-                                  className={
-                                    interview.status === 'scheduled' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
-                                    interview.status === 'completed' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                                    interview.status === 'canceled' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
-                                    'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
-                                  }
-                                >
-                                  {interview.status.charAt(0).toUpperCase() + interview.status.slice(1)}
-                                </Badge>
+                          {selectedCandidate.skills?.length > 0 && (
+                            <div>
+                              <p className="text-sm font-medium mb-1">Skills</p>
+                              <div className="flex flex-wrap gap-2">
+                                {selectedCandidate.skills.map((skill, index) => (
+                                  <Badge key={index} variant="secondary">{skill}</Badge>
+                                ))}
                               </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm">{new Date(interview.date).toLocaleDateString()}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Clock className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm">{formatInterviewTime(interview.date, interview.duration)}</span>
-                                </div>
-                              </div>
-                              <div className="text-sm text-muted-foreground mb-2">
-                                Interviewers: {interview.interviewers.join(', ')}
-                              </div>
-                              {interview.feedback && (
-                                <div className="mt-2 text-sm">
-                                  <p className="font-medium">Feedback:</p>
-                                  <p className="text-muted-foreground">{interview.feedback}</p>
-                                </div>
-                              )}
-                              {interview.rating && (
-                                <div className="flex items-center gap-1 mt-1">
-                                  <span className="text-sm font-medium">Rating:</span>
-                                  <div className="flex">
-                                    {Array.from({ length: interview.rating }).map((_, i) => (
-                                      <Star key={i} className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                                    ))}
-                                    {Array.from({ length: 5 - interview.rating }).map((_, i) => (
-                                      <Star key={i} className="h-4 w-4 text-muted-foreground" />
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
                             </div>
-                          ))}
+                          )}
+                          
+                          {selectedCandidate.experience && (
+                            <div>
+                              <p className="text-sm font-medium mb-1">Experience</p>
+                              <p className="text-sm">{selectedCandidate.experience}</p>
+                            </div>
+                          )}
+                          
+                          {selectedCandidate.education && (
+                            <div>
+                              <p className="text-sm font-medium mb-1">Education</p>
+                              <p className="text-sm">{selectedCandidate.education}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
 
                     {/* Notes */}
                     {selectedCandidate.notes && selectedCandidate.notes.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground mb-3">Notes</h3>
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
                         <div className="space-y-2">
                           {selectedCandidate.notes.map((note, index) => (
                             <div key={index} className="p-3 rounded-lg border border-border bg-accent/30">
@@ -885,21 +786,20 @@ export default function ApplicationsList() {
                         </div>
                       </div>
                     )}
-
-                    {/* Actions */}
-                    <div className="flex flex-wrap gap-2 pt-4">
-                      <Button variant="outline" asChild>
-                        <Link to={`/recruiter/messages?candidateId=${selectedCandidate.id}`}>
-                          <MessageCircle className="h-4 w-4 mr-2" />
-                          Message Candidate
-                        </Link>
-                      </Button>
-                      <Button>
-                        <Calendar className="h-4 w-4 mr-2" />
-                        Schedule Interview
-                      </Button>
-                    </div>
                   </CardContent>
+                  
+                  <CardFooter className="flex flex-wrap gap-2 border-t pt-6">
+                    <Button variant="outline" asChild>
+                      <Link to={`/recruiter/messages?candidateId=${selectedCandidate.id}`}>
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        Message Candidate
+                      </Link>
+                    </Button>
+                    <Button>
+                      <Calendar className="h-4 w-4 mr-2" />
+                      Schedule Interview
+                    </Button>
+                  </CardFooter>
                 </Card>
               ) : (
                 <Card>
@@ -914,9 +814,7 @@ export default function ApplicationsList() {
               )}
             </div>
           </div>
-        )}
-
-        {filteredCandidates.length === 0 && (
+        ) : (
           <Card>
             <CardContent className="py-12 text-center">
               <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

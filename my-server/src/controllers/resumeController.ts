@@ -1,4 +1,7 @@
 import { Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import Resume from '../models/resumeModel';
 import User from '../models/userModel';
 import mongoose from 'mongoose';
@@ -7,6 +10,39 @@ import mongoose from 'mongoose';
 interface AuthRequest extends Request {
   user?: { id: string; role?: string; name?: string; };
 }
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../uploads/resumes');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `resume-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(null, false);
+  }
+};
+
+// Create and export the upload middleware
+export const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
 
 // Get all resumes for the logged-in user
 export const getUserResumes = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -45,7 +81,7 @@ export const getResume = async (req: AuthRequest, res: Response): Promise<void> 
     }
     
     // Increment view count
-    resume.viewCount += 1;
+    resume.viewCount = (resume.viewCount || 0) + 1;
     await resume.save();
     
     res.status(200).json({
@@ -65,7 +101,6 @@ export const getResume = async (req: AuthRequest, res: Response): Promise<void> 
 // Create a new resume
 export const createResume = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Check if user has the basic required info for a resume
     const user = await User.findById(req.user?.id);
     
     if (!user) {
@@ -106,6 +141,67 @@ export const createResume = async (req: AuthRequest, res: Response): Promise<voi
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to create resume'
+    });
+  }
+};
+
+// Upload resume file - EXPORTED FUNCTION
+export const uploadResume = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'No file uploaded'
+      });
+      return;
+    }
+
+    const { name, type = 'uploaded' } = req.body;
+    
+    if (!name) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Resume name is required'
+      });
+      return;
+    }
+
+    const resumeData = {
+      userId: req.user?.id,
+      name: name.trim(),
+      type,
+      fileName: req.file.originalname,
+      fileUrl: `/uploads/resumes/${req.file.filename}`,
+      fileSize: req.file.size,
+      status: 'published',
+      downloadCount: 0,
+      viewCount: 0
+    };
+
+    const resume = await Resume.create(resumeData);
+
+    // If this is the user's first resume, make it default
+    const userResumeCount = await Resume.countDocuments({ userId: req.user?.id });
+    if (userResumeCount === 1) {
+      resume.isDefault = true;
+      await resume.save();
+    }
+
+    res.status(201).json({
+      status: 'success',
+      data: {
+        resume
+      }
+    });
+  } catch (error: any) {
+    // Clean up uploaded file if resume creation fails
+    if (req.file) {
+      fs.unlink(req.file.path, () => {});
+    }
+    
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to upload resume'
     });
   }
 };
@@ -162,13 +258,26 @@ export const deleteResume = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
     
-    // If this is the default resume, don't allow deletion
+    // If this is the default resume and there are other resumes, prevent deletion
     if (resume.isDefault) {
-      res.status(400).json({
-        status: 'fail',
-        message: 'Cannot delete your default resume. Please set another resume as default first.'
+      const otherResumes = await Resume.find({ 
+        userId: req.user?.id, 
+        _id: { $ne: req.params.id } 
       });
-      return;
+      
+      if (otherResumes.length > 0) {
+        res.status(400).json({
+          status: 'fail',
+          message: 'Cannot delete your default resume. Please set another resume as default first.'
+        });
+        return;
+      }
+    }
+    
+    // Delete file if it's an uploaded resume
+    if (resume.type === 'uploaded' && resume.fileUrl) {
+      const filePath = path.join(__dirname, '../../', resume.fileUrl);
+      fs.unlink(filePath, () => {});
     }
     
     await Resume.findByIdAndDelete(req.params.id);
@@ -242,7 +351,7 @@ export const downloadResume = async (req: AuthRequest, res: Response): Promise<v
     }
     
     // Increment download count
-    resume.downloadCount += 1;
+    resume.downloadCount = (resume.downloadCount || 0) + 1;
     await resume.save();
     
     res.status(200).json({

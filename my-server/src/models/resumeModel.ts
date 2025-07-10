@@ -1,77 +1,96 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IResume extends Document {
-  userId: mongoose.Schema.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
   name: string;
-  template: string;
-  isDefault: boolean;
-  status: 'draft' | 'published' | 'archived';
-  downloadCount: number;
-  viewCount: number;
-  personalInfo: {
+  type: 'created' | 'uploaded';
+  fileName?: string;
+  fileUrl?: string;
+  fileSize?: number;
+  personalInfo?: {
     name: string;
     email: string;
-    phone: string;
-    location: string;
-    title: string;
-    summary: string;
-    website?: string;
-    linkedin?: string;
-    github?: string;
+    phone?: string;
+    location?: string;
+    title?: string;
+    summary?: string;
   };
-  experience: {
-    id: string;
+  experience?: Array<{
     company: string;
     position: string;
     startDate: string;
-    endDate?: string;
+    endDate: string;
     current: boolean;
     description: string;
-    achievements: string[];
-  }[];
-  education: {
-    id: string;
+  }>;
+  education?: Array<{
     institution: string;
     degree: string;
     field: string;
     startDate: string;
     endDate: string;
-    gpa?: string;
-  }[];
-  skills: {
+  }>;
+  skills?: Array<{
     category: string;
     items: string[];
-  }[];
-  projects: {
-    id: string;
-    name: string;
-    description: string;
-    url?: string;
-    technologies: string[];
-  }[];
-  certifications: {
-    id: string;
-    name: string;
-    issuer: string;
-    date: string;
-    url?: string;
-  }[];
+  }>;
+  template?: string;
+  isDefault: boolean;
+  status: 'draft' | 'published' | 'archived';
+  downloadCount: number;
+  viewCount: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const resumeSchema = new Schema<IResume>({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
   name: {
     type: String,
-    required: [true, 'Please provide a resume name'],
+    required: true,
     trim: true
   },
+  type: {
+    type: String,
+    enum: ['created', 'uploaded'],
+    default: 'created'
+  },
+  fileName: String,
+  fileUrl: String,
+  fileSize: Number,
+  personalInfo: {
+    name: String,
+    email: String,
+    phone: String,
+    location: String,
+    title: String,
+    summary: String
+  },
+  experience: [{
+    company: String,
+    position: String,
+    startDate: String,
+    endDate: String,
+    current: { type: Boolean, default: false },
+    description: String
+  }],
+  education: [{
+    institution: String,
+    degree: String,
+    field: String,
+    startDate: String,
+    endDate: String
+  }],
+  skills: [{
+    category: String,
+    items: [String]
+  }],
   template: {
     type: String,
-    required: [true, 'Please select a template'],
     default: 'modern'
   },
   isDefault: {
@@ -90,133 +109,20 @@ const resumeSchema = new Schema<IResume>({
   viewCount: {
     type: Number,
     default: 0
-  },
-  personalInfo: {
-    name: {
-      type: String,
-      required: [true, 'Please provide your name']
-    },
-    email: {
-      type: String,
-      required: [true, 'Please provide your email']
-    },
-    phone: String,
-    location: String,
-    title: String,
-    summary: String,
-    website: String,
-    linkedin: String,
-    github: String
-  },
-  experience: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      company: {
-        type: String,
-        required: [true, 'Please provide company name']
-      },
-      position: {
-        type: String,
-        required: [true, 'Please provide position']
-      },
-      startDate: {
-        type: String,
-        required: [true, 'Please provide start date']
-      },
-      endDate: String,
-      current: {
-        type: Boolean,
-        default: false
-      },
-      description: String,
-      achievements: [String]
-    }
-  ],
-  education: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      institution: {
-        type: String,
-        required: [true, 'Please provide institution name']
-      },
-      degree: {
-        type: String,
-        required: [true, 'Please provide degree']
-      },
-      field: {
-        type: String,
-        required: [true, 'Please provide field of study']
-      },
-      startDate: {
-        type: String,
-        required: [true, 'Please provide start date']
-      },
-      endDate: {
-        type: String,
-        required: [true, 'Please provide end date']
-      },
-      gpa: String
-    }
-  ],
-  skills: [
-    {
-      category: {
-        type: String,
-        required: [true, 'Please provide skill category']
-      },
-      items: {
-        type: [String],
-        required: [true, 'Please provide skills']
-      }
-    }
-  ],
-  projects: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      name: {
-        type: String,
-        required: [true, 'Please provide project name']
-      },
-      description: {
-        type: String,
-        required: [true, 'Please provide project description']
-      },
-      url: String,
-      technologies: [String]
-    }
-  ],
-  certifications: [
-    {
-      id: {
-        type: String,
-        required: true
-      },
-      name: {
-        type: String,
-        required: [true, 'Please provide certification name']
-      },
-      issuer: {
-        type: String,
-        required: [true, 'Please provide certification issuer']
-      },
-      date: {
-        type: String,
-        required: [true, 'Please provide date received']
-      },
-      url: String
-    }
-  ]
+  }
 }, {
   timestamps: true
+});
+
+// Ensure only one default resume per user
+resumeSchema.pre('save', async function(next) {
+  if (this.isDefault && this.isModified('isDefault')) {
+    await mongoose.model('Resume').updateMany(
+      { userId: this.userId, _id: { $ne: this._id } },
+      { isDefault: false }
+    );
+  }
+  next();
 });
 
 export default mongoose.model<IResume>('Resume', resumeSchema);

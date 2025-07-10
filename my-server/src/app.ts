@@ -28,7 +28,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Serve static files from uploads folder
+// Make the uploads folder accessible
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes

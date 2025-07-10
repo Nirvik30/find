@@ -4,6 +4,9 @@ import Job from '../models/jobModel';
 import Resume from '../models/resumeModel';
 import User from '../models/userModel';
 import mongoose from 'mongoose';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 interface AuthRequest extends Request {
   user?: { 
@@ -13,6 +16,36 @@ interface AuthRequest extends Request {
     email?: string;
   };
 }
+
+// Configure multer for application documents
+const applicationStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../../uploads/applications');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `doc-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+export const uploadDocuments = multer({
+  storage: applicationStorage,
+  fileFilter: (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
 
 // Apply for a job
 export const applyForJob = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -40,15 +73,17 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
     
-    // Check if resume exists and belongs to applicant
-    const resume = await Resume.findOne({ _id: resumeId, userId: applicantId });
-    
-    if (!resume) {
-      res.status(404).json({
-        status: 'fail',
-        message: 'Resume not found or you do not have permission to use this resume'
-      });
-      return;
+    // Only check resume if resumeId is provided
+    if (resumeId) {
+      const resume = await Resume.findOne({ _id: resumeId, userId: applicantId });
+      
+      if (!resume) {
+        res.status(404).json({
+          status: 'fail',
+          message: 'Resume not found or you do not have permission to use this resume'
+        });
+        return;
+      }
     }
     
     // Check if already applied
@@ -65,18 +100,39 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
     
+    // Validate that either resume or files are provided
+    const hasFiles = req.files && (req.files as Express.Multer.File[]).length > 0;
+    if (!resumeId && !hasFiles) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Please provide either a resume or upload documents'
+      });
+      return;
+    }
+    
+    // Handle uploaded documents
+    const documents = req.files ? (req.files as Express.Multer.File[]).map(file => ({
+      name: file.originalname,
+      url: `/uploads/applications/${file.filename}`,
+      size: file.size
+    })) : [];
+
     // Create application
-    const application = await Application.create({
+    const applicationData: any = {
       jobId,
       applicantId,
-      resumeId,
-      coverLetter: coverLetter || 'No cover letter provided',
+      coverLetter: coverLetter || '',
       status: 'pending',
       appliedDate: new Date(),
       lastUpdated: new Date(),
-      priority: 'medium',
-      matchScore: Math.floor(Math.random() * 30) + 70
-    });
+      documents
+    };
+
+    if (resumeId) {
+      applicationData.resumeId = resumeId;
+    }
+
+    const application = await Application.create(applicationData);
     
     // Update job applications count
     const currentApplications = job.applications || 0;
@@ -95,6 +151,13 @@ export const applyForJob = async (req: AuthRequest, res: Response): Promise<void
       }
     });
   } catch (error: any) {
+    // Clean up uploaded files if application creation fails
+    if (req.files) {
+      (req.files as Express.Multer.File[]).forEach(file => {
+        fs.unlink(file.path, () => {});
+      });
+    }
+    
     console.error('Error in applyForJob:', error);
     res.status(500).json({
       status: 'error',
@@ -321,35 +384,47 @@ export const getCandidates = async (req: AuthRequest, res: Response): Promise<vo
     
     let applications = await Application.find(query)
       .populate('jobId', 'title company')
-      .populate('applicantId', 'name email location avatar phone')
-      .populate('resumeId', 'name template downloadUrl')
+      .populate('applicantId', 'name email location avatar phone skills')
+      .populate('resumeId', 'name fileName fileUrl')
       .sort({ appliedDate: -1 });
     
     // Format data for frontend
-    const candidates = applications.map(app => ({
-      id: app._id.toString(),
-      name: (app.applicantId as any).name,
-      email: (app.applicantId as any).email,
-      phone: (app.applicantId as any).phone || '',
-      location: (app.applicantId as any).location || 'Not specified',
-      avatar: (app.applicantId as any).avatar || '',
-      matchScore: app.matchScore,
-      starred: false,
-      status: app.status,
-      appliedDate: app.appliedDate.toISOString(),
-      lastActivity: app.lastUpdated.toISOString(),
-      resumeUrl: (app.resumeId as any)?.downloadUrl || '',
-      coverLetter: app.coverLetter,
-      jobId: (app.jobId as any)._id.toString(),
-      jobTitle: (app.jobId as any).title,
-      company: (app.jobId as any).company,
-      jobMatch: app.matchScore,
-      skills: [],
-      experience: 'Not specified',
-      education: 'Not specified',
-      notes: app.notes ? [app.notes] : [],
-      priority: app.priority
-    }));
+    const candidates = applications.map(app => {
+      const baseUrl = req.protocol + '://' + req.get('host');
+      const resumeUrl = app.resumeId ? 
+        `${baseUrl}/uploads/resumes/${(app.resumeId as any)?.fileName}` : 
+        '';
+      
+      // Format documents with full URLs
+      const documents = app.documents?.map((doc: any) => ({
+        name: doc.name,
+        url: doc.url.startsWith('http') ? doc.url : `${baseUrl}${doc.url}`
+      })) || [];
+      
+      return {
+        id: app._id.toString(),
+        name: (app.applicantId as any).name,
+        email: (app.applicantId as any).email,
+        phone: (app.applicantId as any).phone || '',
+        location: (app.applicantId as any).location || 'Not specified',
+        avatar: (app.applicantId as any).avatar || '',
+        matchScore: app.matchScore || Math.floor(Math.random() * 30) + 70, // Temp logic
+        status: app.status,
+        appliedDate: app.appliedDate.toISOString(),
+        lastActivity: (app.lastUpdated || app.appliedDate).toISOString(),
+        resumeUrl: resumeUrl,
+        coverLetter: app.coverLetter,
+        documents: documents,
+        jobId: (app.jobId as any)._id.toString(),
+        jobTitle: (app.jobId as any).title,
+        company: (app.jobId as any).company,
+        jobMatch: app.matchScore || Math.floor(Math.random() * 30) + 70, // Temp logic
+        skills: (app.applicantId as any).skills || [],
+        experience: 'Not specified',
+        education: 'Not specified',
+        notes: app.notes ? [app.notes] : []
+      };
+    });
     
     // Apply search filter
     let filteredCandidates = candidates;
