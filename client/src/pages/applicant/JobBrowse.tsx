@@ -116,10 +116,24 @@ export default function JobBrowse() {
     }
   };
 
-  const toggleSaveJob = (jobId: string) => {
-    setJobs(jobs.map(job => 
-      job.id === jobId ? { ...job, saved: !job.saved } : job
-    ));
+  const toggleSaveJob = async (jobId: string) => {
+    try {
+      const job = jobs.find(j => j.id === jobId);
+      if (!job) return;
+
+      if (job.saved) {
+        await api.delete(`/users/saved-jobs/${jobId}`);
+      } else {
+        await api.post(`/users/saved-jobs/${jobId}`);
+      }
+
+      setJobs(jobs.map(j => 
+        j.id === jobId ? { ...j, saved: !j.saved } : j
+      ));
+    } catch (error) {
+      console.error('Error toggling saved status:', error);
+      alert('Failed to update saved status. Please try again.');
+    }
   };
 
   const filteredJobs = jobs.filter(job => {

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import User from '../models/userModel';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
@@ -16,56 +16,58 @@ interface AuthRequest extends Request {
   };
 }
 
-export const protect = async (
-  req: AuthRequest, 
-  res: Response, 
-  next: NextFunction
-): Promise<void> => {
+export const protect = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    let token;
+    let token: string | undefined;
     
-    // Get token from Authorization header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    // Check for token in Authorization header
+    if (req.headers.authorization?.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
+    } 
+    // Check for token in cookies as fallback
+    else if (req.cookies?.jwt) {
+      token = req.cookies.jwt;
     }
 
+    // If no token found, return error
     if (!token) {
       res.status(401).json({
         status: 'fail',
-        message: 'Not authorized to access this route'
+        message: 'You are not logged in. Please log in to get access.'
       });
       return;
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
-    
-    // Get user from token and include role
-    const user = await User.findById(decoded.id).select('name email role companyId companyName');
-    if (!user) {
-      res.status(404).json({
+    // Verify the token
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+      
+      // Check if user still exists
+      const currentUser = await User.findById(decoded.id).select('-password');
+      if (!currentUser) {
+        res.status(401).json({
+          status: 'fail',
+          message: 'The user belonging to this token no longer exists.'
+        });
+        return;
+      }
+
+      // Add user to request - Fix the type issue by explicitly converting _id to string
+      (req as AuthRequest).user = {
+        id: currentUser._id.toString(), // Convert ObjectId to string
+        email: currentUser.email,
+        role: currentUser.role
+      };
+      
+      next();
+    } catch (err) {
+      res.status(401).json({
         status: 'fail',
-        message: 'User belonging to this token no longer exists'
+        message: 'Invalid token. Please log in again.'
       });
-      return;
     }
-
-    // Add user to request object with ALL necessary fields
-    req.user = {
-      id: String(user._id),
-      role: user.role,
-      name: user.name,
-      email: user.email,
-      companyId: user.companyId,
-      companyName: user.companyName
-    };
-    
-    next();
   } catch (error) {
-    res.status(401).json({
-      status: 'fail',
-      message: 'Not authorized to access this route'
-    });
+    next(error);
   }
 };
 

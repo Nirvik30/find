@@ -126,19 +126,59 @@ export const getApplicants = async (req: AuthRequest, res: Response): Promise<vo
 // Get saved jobs (for applicants)
 export const getSavedJobs = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // In a real implementation, this would retrieve saved jobs from a separate collection
-    // For now, we'll return an empty array
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
+    console.log('Getting saved jobs for user:', req.user.id);
+
+    // Find the user and populate their saved jobs
+    const user = await User.findById(req.user.id).populate({
+      path: 'savedJobs',
+      select: 'title company location type salary experience applications views status postedDate applicationDeadline isUrgent requirements skills'
+    });
+    
+    if (!user) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'User not found'
+      });
+      return;
+    }
+
+    // If savedJobs array doesn't exist, return empty array
+    const savedJobs = user.savedJobs || [];
+    
+    console.log(`Found ${savedJobs.length} saved jobs for user ${req.user.id}`);
+
+    // Add a savedDate to each job
+    const jobsWithSavedDate = savedJobs.map((job: any) => {
+      const jobObj = job.toObject ? job.toObject() : job;
+      // In a real implementation, you would store the saved date
+      // For now, we'll use a random date within the last 30 days
+      const randomDaysAgo = Math.floor(Math.random() * 30);
+      const savedDate = new Date();
+      savedDate.setDate(savedDate.getDate() - randomDaysAgo);
+      jobObj.savedDate = savedDate;
+      return jobObj;
+    });
+
     res.status(200).json({
       status: 'success',
-      results: 0,
+      results: jobsWithSavedDate.length,
       data: {
-        savedJobs: []
+        savedJobs: jobsWithSavedDate
       }
     });
   } catch (error: any) {
+    console.error('Error fetching saved jobs:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message
+      message: error.message || 'Error fetching saved jobs'
     });
   }
 };
@@ -146,11 +186,18 @@ export const getSavedJobs = async (req: AuthRequest, res: Response): Promise<voi
 // Save job (for applicants)
 export const saveJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { jobId } = req.params;
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
+    const jobId = req.params.jobId;
     
     // Check if job exists
     const job = await Job.findById(jobId);
-    
     if (!job) {
       res.status(404).json({
         status: 'fail',
@@ -158,17 +205,21 @@ export const saveJob = async (req: AuthRequest, res: Response): Promise<void> =>
       });
       return;
     }
-    
-    // In a real implementation, this would save the job to a separate collection
-    // For now, we'll just return a success response
+
+    // Add job to user's saved jobs
+    await User.findByIdAndUpdate(req.user.id, {
+      $addToSet: { savedJobs: jobId } // Using addToSet to avoid duplicates
+    });
+
     res.status(200).json({
       status: 'success',
       message: 'Job saved successfully'
     });
   } catch (error: any) {
+    console.error('Error saving job:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message
+      message: error.message || 'Failed to save job'
     });
   }
 };
@@ -176,10 +227,21 @@ export const saveJob = async (req: AuthRequest, res: Response): Promise<void> =>
 // Unsave job (for applicants)
 export const unsaveJob = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { jobId } = req.params;
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
+    const jobId = req.params.jobId;
     
-    // In a real implementation, this would remove the job from a separate collection
-    // For now, we'll just return a success response
+    // Remove job from user's saved jobs
+    await User.findByIdAndUpdate(req.user.id, {
+      $pull: { savedJobs: jobId }
+    });
+
     res.status(200).json({
       status: 'success',
       message: 'Job removed from saved jobs'
@@ -187,7 +249,63 @@ export const unsaveJob = async (req: AuthRequest, res: Response): Promise<void> 
   } catch (error: any) {
     res.status(500).json({
       status: 'error',
-      message: error.message
+      message: error.message || 'Failed to remove job from saved jobs'
+    });
+  }
+};
+
+// Update user profile
+export const updateUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user?.id) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+
+    const { name, location, phone, headline, bio, skills, avatar } = req.body;
+    
+    // Find user and update
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { name, location, phone, headline, bio, skills, avatar },
+      { new: true, runValidators: true }
+    );
+    
+    if (!user) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'User not found'
+      });
+      return;
+    }
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          companyName: user.companyName,
+          companyId: user.companyId,
+          location: user.location,
+          phone: user.phone,
+          headline: user.headline,
+          bio: user.bio,
+          skills: user.skills,
+          avatar: user.avatar
+        }
+      }
+    });
+  } catch (error: any) {
+    console.error('Error updating user profile:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to update profile'
     });
   }
 };

@@ -14,6 +14,7 @@ export interface IUser extends Document {
   headline?: string;
   bio?: string;
   skills?: string[];
+  savedJobs?: mongoose.Types.ObjectId[] | mongoose.Schema.Types.ObjectId[]; // Add this line
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   resetPasswordToken?: string;
@@ -69,7 +70,11 @@ const userSchema = new Schema<IUser>({
   },
   emailVerificationToken: String,
   resetPasswordToken: String,
-  resetPasswordExpire: Date
+  resetPasswordExpire: Date,
+  savedJobs: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Job'
+  }]
 }, {
   timestamps: true
 });

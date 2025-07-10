@@ -174,12 +174,14 @@ export default function JobDetails() {
     try {
       if (job.saved) {
         await api.delete(`/users/saved-jobs/${job.id}`);
+        setJob({ ...job, saved: false });
       } else {
         await api.post(`/users/saved-jobs/${job.id}`);
+        setJob({ ...job, saved: true });
       }
-      setJob({ ...job, saved: !job.saved });
     } catch (error) {
-      console.error('Error saving job:', error);
+      console.error('Error toggling saved job status:', error);
+      alert('Failed to update saved status. Please try again.');
     }
   };
 

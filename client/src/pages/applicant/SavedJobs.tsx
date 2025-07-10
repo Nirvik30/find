@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -42,30 +43,31 @@ import api from '@/lib/api';
 
 interface SavedJob {
   id: string;
-  jobId: string;
   title: string;
   company: string;
   location: string;
-  type: 'Full-time' | 'Part-time' | 'Contract' | 'Remote';
-  experience: string;
+  type: string;
   salary: string;
-  description: string;
+  experience: string;
+  description?: string;
   requirements: string[];
-  benefits: string[];
   postedDate: string;
   savedDate: string;
   applicants: number;
-  companyLogo?: string;
-  isUrgent: boolean;
-  matchScore: number;
   status: 'active' | 'expired' | 'filled';
   applicationDeadline?: string;
+  isUrgent: boolean;
+  matchScore: number;
+  skills?: string[];
+  jobId?: string; // The actual job ID
 }
 
 export default function SavedJobs() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -81,12 +83,53 @@ export default function SavedJobs() {
   const fetchSavedJobs = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       const response = await api.get('/users/saved-jobs');
-      setSavedJobs(response.data.data.savedJobs);
+      console.log('Saved jobs response:', response.data);
+      
+      if (!response?.data?.data?.savedJobs) {
+        setSavedJobs([]);
+        setLoading(false);
+        return;
+      }
+      
+      const jobs = response.data.data.savedJobs.map((job: any) => ({
+        id: job._id || '',
+        jobId: job._id || '',
+        title: job.title || 'Unknown Position',
+        company: job.company || 'Unknown Company',
+        location: job.location || 'Remote',
+        type: job.type || 'Full-time',
+        salary: job.salary || 'Salary not specified',
+        experience: job.experience || 'Not specified',
+        description: job.description || '',
+        requirements: job.requirements || [],
+        postedDate: job.postedDate || new Date().toISOString(),
+        savedDate: job.savedDate || new Date().toISOString(),
+        applicants: job.applications || 0,
+        status: job.status || 'active',
+        applicationDeadline: job.applicationDeadline,
+        isUrgent: job.isUrgent || false,
+        matchScore: Math.floor(Math.random() * 30) + 70, // Generate random match score for demo
+        skills: job.skills || []
+      }));
+      
+      setSavedJobs(jobs);
       setLoading(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching saved jobs:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to load saved jobs';
+      setError(errorMessage);
+      setSavedJobs([]);
       setLoading(false);
+      
+      // If unauthorized, redirect to login
+      if (error.response?.status === 401) {
+        alert('Your session has expired. Please log in again.');
+        // Redirect to login if you have authentication context
+        // logout();
+      }
     }
   };
 
@@ -97,12 +140,27 @@ export default function SavedJobs() {
       setSelectedJobs(selectedJobs.filter(id => id !== jobId));
     } catch (error) {
       console.error('Error removing saved job:', error);
+      alert('Failed to remove job from saved jobs');
     }
   };
 
-  const removeMultipleSavedJobs = () => {
-    setSavedJobs(savedJobs.filter(job => !selectedJobs.includes(job.id)));
-    setSelectedJobs([]);
+  const removeMultipleSavedJobs = async () => {
+    if (!confirm(`Remove ${selectedJobs.length} selected jobs from saved jobs?`)) {
+      return;
+    }
+    
+    try {
+      // Use Promise.all to remove multiple jobs
+      await Promise.all(
+        selectedJobs.map(jobId => api.delete(`/users/saved-jobs/${jobId}`))
+      );
+      
+      setSavedJobs(savedJobs.filter(job => !selectedJobs.includes(job.id)));
+      setSelectedJobs([]);
+    } catch (error) {
+      console.error('Error removing multiple saved jobs:', error);
+      alert('Failed to remove some jobs from saved jobs');
+    }
   };
 
   const toggleJobSelection = (jobId: string) => {
@@ -125,33 +183,46 @@ export default function SavedJobs() {
     try {
       // First get user's resumes
       const resumesResponse = await api.get('/resumes');
-      const resumes = resumesResponse.data.data.resumes;
       
-      if (resumes.length === 0) {
+      if (!resumesResponse?.data?.data?.resumes || resumesResponse.data.data.resumes.length === 0) {
         alert('Please create a resume first before applying');
         navigate('/applicant/resumes');
         return;
       }
       
       // For now, let's use the default resume or the first one
+      const resumes = resumesResponse.data.data.resumes;
       const defaultResume = resumes.find((r: any) => r.isDefault) || resumes[0];
       
       // Apply with the selected resume
       await api.post(`/applications/${job.jobId}`, {
-        resumeId: defaultResume.id,
+        resumeId: defaultResume._id,
         coverLetter: 'I am interested in this position and would like to apply.'
       });
       
       // Mark as applied in the UI
       alert(`Applied to ${job.title} successfully!`);
-    } catch (error) {
+      
+      // Navigate to the applications page
+      navigate('/applicant/applications');
+    } catch (error: any) {
       console.error('Error applying to job:', error);
+      alert(error.response?.data?.message || 'Failed to apply for job');
     }
   };
 
   const shareJob = (job: SavedJob) => {
-    // TODO: Implement share functionality
-    console.log('Sharing job:', job.title);
+    if (navigator.share) {
+      navigator.share({
+        title: `${job.title} at ${job.company}`,
+        text: `Check out this job opportunity: ${job.title} at ${job.company}`,
+        url: window.location.origin + `/applicant/jobs/${job.id}`
+      }).catch(err => console.error('Error sharing:', err));
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      const shareUrl = window.location.origin + `/applicant/jobs/${job.id}`;
+      prompt('Copy this link to share the job:', shareUrl);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -175,24 +246,31 @@ export default function SavedJobs() {
   };
 
   const filteredJobs = savedJobs.filter(job => {
-    const matchesSearch = 
+    const matchesSearch = !searchTerm || 
       job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       job.company.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesLocation = !locationFilter || job.location.toLowerCase().includes(locationFilter.toLowerCase());
+    
+    const matchesLocation = !locationFilter || 
+      job.location.toLowerCase().includes(locationFilter.toLowerCase());
+    
     const matchesType = !typeFilter || job.type === typeFilter;
+    
     const matchesStatus = !statusFilter || job.status === statusFilter;
     
     return matchesSearch && matchesLocation && matchesType && matchesStatus;
-  }).sort((a, b) => {
+  });
+
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
     switch (sortBy) {
       case 'saved-date':
         return new Date(b.savedDate).getTime() - new Date(a.savedDate).getTime();
       case 'match-score':
         return b.matchScore - a.matchScore;
       case 'salary':
-        const aSalary = parseInt(a.salary.replace(/[^0-9]/g, ''));
-        const bSalary = parseInt(b.salary.replace(/[^0-9]/g, ''));
-        return bSalary - aSalary;
+        // Simple salary comparison (not accurate for ranges/text)
+        const aNum = parseInt(a.salary.replace(/[^0-9]/g, '')) || 0;
+        const bNum = parseInt(b.salary.replace(/[^0-9]/g, '')) || 0;
+        return bNum - aNum;
       case 'posted-date':
         return new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime();
       default:
@@ -214,6 +292,19 @@ export default function SavedJobs() {
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
           <p className="text-muted-foreground">Loading saved jobs...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Error Loading Saved Jobs</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => fetchSavedJobs()}>Try Again</Button>
         </div>
       </div>
     );
@@ -315,24 +406,26 @@ export default function SavedJobs() {
                   className="pl-10"
                 />
               </div>
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="saved-date">Recently Saved</SelectItem>
-                  <SelectItem value="match-score">Match Score</SelectItem>
-                  <SelectItem value="salary">Salary (High to Low)</SelectItem>
-                  <SelectItem value="posted-date">Recently Posted</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                Filters
-              </Button>
+              <div className="flex gap-2">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="saved-date">Recently Saved</SelectItem>
+                    <SelectItem value="match-score">Match Score</SelectItem>
+                    <SelectItem value="salary">Salary (High to Low)</SelectItem>
+                    <SelectItem value="posted-date">Recently Posted</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowFilters(!showFilters)}
+                >
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filters
+                </Button>
+              </div>
             </div>
 
             {showFilters && (
@@ -419,7 +512,7 @@ export default function SavedJobs() {
       {/* Jobs List */}
       <div className="container mx-auto px-6 py-8">
         <div className="space-y-4">
-          {filteredJobs.map((job) => (
+          {sortedJobs.map((job) => (
             <Card key={job.id} className="hover:shadow-md transition-shadow">
               <CardContent className="pt-6">
                 <div className="flex gap-4">
@@ -453,7 +546,7 @@ export default function SavedJobs() {
                             {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
                           </Badge>
                         </div>
-                        
+
                         <div className="flex items-center gap-4 text-muted-foreground mb-3">
                           <div className="flex items-center gap-1">
                             <Building2 className="h-4 w-4" />
@@ -533,8 +626,15 @@ export default function SavedJobs() {
                           </Button>
                         )}
                         <div className="flex gap-1">
-                          <Button variant="outline" size="sm" className="flex-1">
-                            <Eye className="h-4 w-4" />
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            asChild
+                          >
+                            <Link to={`/applicant/jobs/${job.id}`}>
+                              <Eye className="h-4 w-4" />
+                            </Link>
                           </Button>
                           <Button 
                             variant="outline" 
