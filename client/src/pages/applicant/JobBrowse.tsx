@@ -56,7 +56,6 @@ export default function JobBrowse() {
 
   useEffect(() => {
     fetchJobs();
-    fetchUserApplications();
   }, []);
 
   const fetchJobs = async () => {
@@ -69,10 +68,15 @@ export default function JobBrowse() {
       if (typeFilter && typeFilter !== 'all') params.type = typeFilter;
       if (experienceFilter && experienceFilter !== 'all') params.experience = experienceFilter;
       
+      // First get applications to know which jobs the user has applied for
+      const applicationsResponse = await api.get('/applications/my-applications');
+      const appliedJobIds = applicationsResponse.data.data.applications.map((app: any) => app.jobId._id);
+      
+      // Then get jobs
       const response = await api.get('/jobs', { params });
       const jobsData = response.data.data.jobs;
       
-      // Map the backend data to frontend format
+      // Map the backend data to frontend format with applied status already set
       const mappedJobs = jobsData.map((job: any) => ({
         id: job._id,
         title: job.title,
@@ -86,32 +90,29 @@ export default function JobBrowse() {
         benefits: job.benefits || [],
         postedDate: job.postedDate,
         applicants: job.applications || 0,
-        saved: false,
-        applied: false // Will be updated by fetchUserApplications
+        saved: false, // Will be updated separately
+        applied: appliedJobIds.includes(job._id)
       }));
       
       setJobs(mappedJobs);
+      
+      // Now fetch saved jobs to mark which ones are saved
+      try {
+        const savedResponse = await api.get('/users/saved-jobs');
+        const savedJobIds = savedResponse.data.data.savedJobs.map((job: any) => job._id);
+        
+        setJobs(prev => prev.map(job => ({
+          ...job,
+          saved: savedJobIds.includes(job.id)
+        })));
+      } catch (error) {
+        console.error('Error fetching saved jobs:', error);
+      }
+      
       setLoading(false);
     } catch (error) {
       console.error('Error fetching jobs:', error);
       setLoading(false);
-    }
-  };
-
-  const fetchUserApplications = async () => {
-    try {
-      const response = await api.get('/applications/my-applications');
-      const appliedJobIds = response.data.data.applications.map((app: any) => app.jobId._id);
-      
-      // Update jobs to mark which ones user has applied to
-      setJobs(prevJobs => 
-        prevJobs.map(job => ({
-          ...job,
-          applied: appliedJobIds.includes(job.id)
-        }))
-      );
-    } catch (error) {
-      console.error('Error fetching user applications:', error);
     }
   };
 

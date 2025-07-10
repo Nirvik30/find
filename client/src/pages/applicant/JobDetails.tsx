@@ -97,13 +97,29 @@ export default function JobDetails() {
     if (id) {
       fetchJobDetails(id);
       fetchResumes();
-      checkApplicationStatus(id);
     }
   }, [id]);
 
   const fetchJobDetails = async (jobId: string) => {
     try {
       setLoading(true);
+      
+      // First get applications to check if user has already applied
+      const applicationsResponse = await api.get('/applications/my-applications');
+      const applications = applicationsResponse.data.data.applications;
+      const appliedToThisJob = applications.some((app: any) => app.jobId._id === jobId);
+      
+      // Get saved jobs to check if this job is saved
+      let isSaved = false;
+      try {
+        const savedResponse = await api.get('/users/saved-jobs');
+        const savedJobs = savedResponse.data.data.savedJobs;
+        isSaved = savedJobs.some((job: any) => job._id === jobId);
+      } catch (error) {
+        console.error('Error checking saved status:', error);
+      }
+      
+      // Now get job details
       const response = await api.get(`/jobs/${jobId}`);
       const jobData = response.data.data.job;
       
@@ -126,8 +142,8 @@ export default function JobDetails() {
         views: jobData.views || 0,
         status: jobData.status,
         isUrgent: jobData.isUrgent || false,
-        saved: false,
-        applied: false
+        saved: isSaved,
+        applied: appliedToThisJob
       });
       
       setLoading(false);
@@ -149,19 +165,6 @@ export default function JobDetails() {
       })));
     } catch (error) {
       console.error('Error fetching resumes:', error);
-    }
-  };
-
-  const checkApplicationStatus = async (jobId: string) => {
-    try {
-      const response = await api.get('/applications/my-applications');
-      const appliedJobIds = response.data.data.applications.map((app: any) => app.jobId._id);
-      
-      setJob(prevJob => 
-        prevJob ? { ...prevJob, applied: appliedJobIds.includes(jobId) } : null
-      );
-    } catch (error) {
-      console.error('Error checking application status:', error);
     }
   };
 
@@ -194,34 +197,34 @@ export default function JobDetails() {
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (files) {
-      const newFiles: UploadedFile[] = [];
-      
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        
-        // Validate file type
-        const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-        if (!validTypes.includes(file.type)) {
-          alert('Please upload PDF or Word documents only');
-          continue;
-        }
-        
-        // Validate file size (5MB limit)
-        if (file.size > 5 * 1024 * 1024) {
-          alert('File size must be less than 5MB');
-          continue;
-        }
-        
-        newFiles.push({
-          id: Date.now().toString() + i,
-          name: file.name,
-          file
-        });
-      }
-      
-      setUploadedFiles(prev => [...prev, ...newFiles]);
+    
+    if (!files || files.length === 0) return;
+    
+    // Clear existing files - we only want one resume
+    setUploadedFiles([]);
+    
+    // Get the first file only (single resume)
+    const file = files[0];
+    
+    // Validate file type
+    const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!validTypes.includes(file.type)) {
+      alert('Please upload PDF or Word documents only');
+      return;
     }
+    
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+    
+    // Add the file to state
+    setUploadedFiles([{
+      id: Date.now().toString(),
+      name: file.name,
+      file
+    }]);
     
     // Reset input
     if (fileInputRef.current) {
@@ -234,35 +237,32 @@ export default function JobDetails() {
   };
 
   const handleApplicationSubmit = async () => {
-    if (!job || (!selectedResumeId && uploadedFiles.length === 0) || applying) return;
+    if (!job || (uploadedFiles.length === 0) || applying) return;
     
     try {
       setApplying(true);
       
       const formData = new FormData();
-      formData.append('coverLetter', coverLetter || 'I am interested in this position and would like to apply.');
-      
-      if (selectedResumeId) {
-        formData.append('resumeId', selectedResumeId);
-      }
+      formData.append('coverLetter', coverLetter || 'I am interested in this position.');
       
       // Add uploaded files
-      uploadedFiles.forEach((uploadedFile, index) => {
+      uploadedFiles.forEach((uploadedFile) => {
         formData.append('documents', uploadedFile.file);
       });
       
+      // Submit application
       await api.post(`/applications/${job.id}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
       
+      // Update local state to reflect application was successful
       setJob({ ...job, applied: true, applicants: job.applicants + 1 });
       setShowApplicationDialog(false);
       setApplying(false);
       
       // Reset form
-      setSelectedResumeId('');
       setCoverLetter('');
       setUploadedFiles([]);
       
@@ -534,40 +534,10 @@ export default function JobDetails() {
                             </DialogDescription>
                           </DialogHeader>
                           <div className="space-y-6">
-                            {/* Resume Selection */}
-                            {resumes.length > 0 && (
-                              <div className="space-y-2">
-                                <Label htmlFor="resume" className="text-sm font-medium">Select Resume *</Label>
-                                <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
-                                  <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Choose a resume" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {resumes.map((resume) => (
-                                      <SelectItem key={resume.id} value={resume.id}>
-                                        <div className="flex items-center gap-2">
-                                          <FileText className="h-4 w-4" />
-                                          <span>{resume.name}</span>
-                                          {resume.isDefault && (
-                                            <Badge variant="secondary" className="text-xs">Default</Badge>
-                                          )}
-                                          {resume.type === 'uploaded' && (
-                                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
-                                              Uploaded
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            )}
-
-                            {/* Additional Documents */}
+                            {/* Upload Resume */}
                             <div className="space-y-2">
-                              <Label className="text-sm font-medium">Additional Documents (Optional)</Label>
-                              <div className="border-2 border-dashed border-border rounded-lg p-4 bg-muted/30">
+                              <Label htmlFor="resume" className="text-sm font-medium">Upload Resume *</Label>
+                              <div className="border-2 border-dashed border-border rounded-lg p-4 bg-background">
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -576,25 +546,22 @@ export default function JobDetails() {
                                   size="sm"
                                 >
                                   <Upload className="h-4 w-4 mr-2" />
-                                  Upload Additional Documents
+                                  Upload Resume
                                 </Button>
                                 <p className="text-xs text-muted-foreground mt-2 text-center">
-                                  PDF or Word documents, max 5MB each
+                                  PDF or Word documents, max 5MB
                                 </p>
                               </div>
                               
                               {/* Uploaded Files List */}
                               {uploadedFiles.length > 0 && (
                                 <div className="mt-3 space-y-2">
-                                  <Label className="text-sm font-medium">Uploaded Documents:</Label>
+                                  <Label className="text-sm font-medium">Uploaded Resume:</Label>
                                   {uploadedFiles.map((file) => (
                                     <div key={file.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md border">
                                       <div className="flex items-center gap-2">
                                         <FileText className="h-4 w-4 text-muted-foreground" />
                                         <span className="text-sm text-foreground">{file.name}</span>
-                                        <Badge variant="outline" className="text-xs bg-green-50 text-green-600 border-green-200">
-                                          Uploaded
-                                        </Badge>
                                       </div>
                                       <Button
                                         type="button"
@@ -612,14 +579,14 @@ export default function JobDetails() {
 
                             {/* Cover Letter */}
                             <div className="space-y-2">
-                              <Label htmlFor="coverLetter" className="text-sm font-medium">Cover Letter</Label>
+                              <Label htmlFor="coverLetter" className="text-sm font-medium">Additional Message (Optional)</Label>
                               <Textarea
                                 id="coverLetter"
-                                placeholder="Write a brief cover letter explaining why you're interested in this position..."
+                                placeholder="Write a brief message about why you're interested in this position..."
                                 value={coverLetter}
                                 onChange={(e) => setCoverLetter(e.target.value)}
                                 rows={4}
-                                className="resize-none"
+                                className="resize-none bg-background"
                               />
                             </div>
 
@@ -634,7 +601,7 @@ export default function JobDetails() {
                               </Button>
                               <Button 
                                 onClick={handleApplicationSubmit}
-                                disabled={(!selectedResumeId && uploadedFiles.length === 0) || applying}
+                                disabled={uploadedFiles.length === 0 || applying}
                                 className="flex-1"
                               >
                                 {applying ? (

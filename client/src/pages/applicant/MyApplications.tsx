@@ -23,7 +23,9 @@ import {
   X,
   CheckCircle,
   AlertCircle,
-  XCircle
+  XCircle,
+  FileText,
+  ExternalLink
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -48,6 +50,7 @@ export default function MyApplications() {
   const { user } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortBy, setSortBy] = useState('recent');
@@ -60,19 +63,27 @@ export default function MyApplications() {
   const fetchApplications = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       const response = await api.get('/applications/my-applications');
       
+      if (!response?.data?.data?.applications) {
+        setApplications([]);
+        setLoading(false);
+        return;
+      }
+      
       const mappedApplications = response.data.data.applications.map((app: any) => ({
-        id: app._id,
-        jobId: app.jobId._id,
-        jobTitle: app.jobId.title,
-        company: app.jobId.company,
-        location: app.jobId.location,
-        salary: app.jobId.salary || 'Salary not specified',
-        type: app.jobId.type,
-        status: app.status,
-        appliedDate: app.appliedDate,
-        lastUpdated: app.lastUpdated,
+        id: app._id || '',
+        jobId: app.jobId?._id || '',
+        jobTitle: app.jobId?.title || 'Unknown Position',
+        company: app.jobId?.company || 'Unknown Company',
+        location: app.jobId?.location || 'Remote',
+        salary: app.jobId?.salary || 'Salary not specified',
+        type: app.jobId?.type || 'Full-time',
+        status: app.status || 'pending',
+        appliedDate: app.appliedDate || new Date().toISOString(),
+        lastUpdated: app.lastUpdated || app.appliedDate || new Date().toISOString(),
         resumeName: app.resumeId?.name,
         coverLetter: app.coverLetter
       }));
@@ -81,7 +92,9 @@ export default function MyApplications() {
       setLoading(false);
     } catch (error) {
       console.error('Error fetching applications:', error);
+      setError('Failed to load your applications. Please try again.');
       setLoading(false);
+      setApplications([]);
     }
   };
 
@@ -118,28 +131,28 @@ export default function MyApplications() {
       case 'withdrawn':
         return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
       default:
-        return 'bg-muted text-muted-foreground border-border';
+        return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Clock className="h-4 w-4" />;
+        return <Clock className="h-5 w-5 text-yellow-500" />;
       case 'reviewing':
-        return <Eye className="h-4 w-4" />;
+        return <AlertCircle className="h-5 w-5 text-blue-500" />;
       case 'interview':
-        return <Calendar className="h-4 w-4" />;
+        return <Calendar className="h-5 w-5 text-purple-500" />;
       case 'offer':
-        return <CheckCircle className="h-4 w-4" />;
+        return <FileText className="h-5 w-5 text-orange-500" />;
       case 'accepted':
-        return <CheckCircle className="h-4 w-4" />;
+        return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'rejected':
-        return <XCircle className="h-4 w-4" />;
+        return <XCircle className="h-5 w-5 text-red-500" />;
       case 'withdrawn':
-        return <X className="h-4 w-4" />;
+        return <X className="h-5 w-5 text-gray-500" />;
       default:
-        return <AlertCircle className="h-4 w-4" />;
+        return <AlertCircle className="h-5 w-5 text-gray-500" />;
     }
   };
 
@@ -154,18 +167,17 @@ export default function MyApplications() {
   });
 
   const sortedApplications = [...filteredApplications].sort((a, b) => {
-    switch (sortBy) {
-      case 'recent':
-        return new Date(b.appliedDate).getTime() - new Date(a.appliedDate).getTime();
-      case 'company':
-        return a.company.localeCompare(b.company);
-      case 'status':
-        return a.status.localeCompare(b.status);
-      default:
-        return 0;
+    if (sortBy === 'recent') {
+      return new Date(b.appliedDate).getTime() - new Date(a.appliedDate).getTime();
+    } else if (sortBy === 'status') {
+      return a.status.localeCompare(b.status);
+    } else if (sortBy === 'company') {
+      return a.company.localeCompare(b.company);
     }
+    return 0;
   });
 
+  // Calculate status counts for the dashboard
   const statusCounts = {
     total: applications.length,
     pending: applications.filter(app => app.status === 'pending').length,
@@ -182,6 +194,19 @@ export default function MyApplications() {
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
           <p className="text-muted-foreground">Loading applications...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Error Loading Applications</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => fetchApplications()}>Try Again</Button>
         </div>
       </div>
     );
@@ -268,7 +293,7 @@ export default function MyApplications() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
-                  placeholder="Search applications by job title or company..."
+                  placeholder="Search by job title or company..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -281,8 +306,8 @@ export default function MyApplications() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="recent">Most Recent</SelectItem>
-                    <SelectItem value="company">Company</SelectItem>
                     <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="company">Company</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button
@@ -356,29 +381,30 @@ export default function MyApplications() {
                             variant="outline"
                             className={getStatusColor(application.status)}
                           >
-                            <div className="flex items-center gap-1">
-                              {getStatusIcon(application.status)}
-                              {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
-                            </div>
+                            {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
                           </Badge>
                         </div>
-                        <p className="text-lg text-primary font-medium">{application.company}</p>
+                        <p className="text-lg text-muted-foreground">{application.company}</p>
+                      </div>
+                      {getStatusIcon(application.status)}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Location</p>
+                        <p className="text-sm text-muted-foreground">{application.location}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Job Type</p>
+                        <p className="text-sm text-muted-foreground">{application.type}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Salary</p>
+                        <p className="text-sm text-muted-foreground">{application.salary}</p>
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-4">
-                      <div className="flex items-center gap-1">
-                        <MapPin className="h-4 w-4" />
-                        <span>{application.location}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Building2 className="h-4 w-4" />
-                        <span>{application.type}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="h-4 w-4" />
-                        <span>{application.salary}</span>
-                      </div>
+                    
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Calendar className="h-4 w-4" />
                         <span>Applied {new Date(application.appliedDate).toLocaleDateString()}</span>
@@ -390,8 +416,18 @@ export default function MyApplications() {
                     </div>
 
                     {application.resumeName && (
-                      <div className="text-sm text-muted-foreground mb-2">
-                        <span className="font-medium">Resume:</span> {application.resumeName}
+                      <div className="mt-3 p-2 bg-muted/50 rounded border">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm text-foreground">Resume: {application.resumeName}</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {application.coverLetter && (
+                      <div className="mt-3 p-3 bg-muted/30 rounded border">
+                        <p className="text-sm font-medium mb-1">Your Message:</p>
+                        <p className="text-sm text-muted-foreground">{application.coverLetter}</p>
                       </div>
                     )}
                   </div>
@@ -432,7 +468,6 @@ export default function MyApplications() {
                 </p>
                 <Button asChild>
                   <Link to="/applicant/jobs">
-                    <Search className="h-4 w-4 mr-2" />
                     Browse Jobs
                   </Link>
                 </Button>

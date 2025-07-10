@@ -327,8 +327,9 @@ export default function ApplicantDashboard() {
                 <div className="space-y-4">
                   {recentApplications.length > 0 ? (
                     recentApplications.map((application) => (
-                      <div 
+                      <Link
                         key={application.id}
+                        to={`/applicant/applications?focus=${application.id}`}
                         className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors"
                       >
                         <div className="flex items-center gap-3">
@@ -356,7 +357,7 @@ export default function ApplicantDashboard() {
                             {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
                           </Badge>
                         </div>
-                      </div>
+                      </Link>
                     ))
                   ) : (
                     <div className="text-center py-8">
@@ -389,9 +390,10 @@ export default function ApplicantDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {recommendedJobs.map((job) => (
-                    <div 
+                    <Link 
                       key={job.id}
-                      className="p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors cursor-pointer"
+                      to={`/applicant/jobs/${job.id}`}
+                      className="block p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors"
                     >
                       <div className="flex items-start justify-between mb-2">
                         <h4 className="font-semibold text-foreground text-sm">
@@ -410,21 +412,12 @@ export default function ApplicantDashboard() {
                       <div className="flex gap-2">
                         <Button 
                           size="sm" 
-                          className="flex-1 text-xs"
-                          asChild
+                          className="w-full text-xs"
                         >
-                          <Link to={`/applicant/jobs/${job.id}`}>
-                            View Details
-                          </Link>
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                        >
-                          <BookmarkIcon className="h-3 w-3" />
+                          View Details
                         </Button>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
                 <Button 
