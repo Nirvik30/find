@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -19,6 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -46,10 +54,14 @@ import {
   Download,
   Briefcase,
   Mail,
-  MapPin
+  MapPin,
+  Eye,
+  Loader2, // Add this import
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import api from '@/lib/api';
+import { DocumentPreview } from '@/components/DocumentPreview';
+import { Switch } from "@/components/ui/switch";
 
 // Types
 interface Candidate {
@@ -58,23 +70,31 @@ interface Candidate {
   email: string;
   phone?: string;
   avatar?: string;
-  location: string;
+  location?: string;
   matchScore: number;
   starred: boolean;
-  status: 'pending' | 'reviewing' | 'interview' | 'offer' | 'accepted' | 'rejected';
+  status: string;
   appliedDate: string;
   lastActivity?: string;
   resumeUrl?: string;
+  resumeFileName?: string;
   coverLetter?: string;
-  documents?: Array<{name: string, url: string}>;
+  documents?: Array<{ name: string; url: string; size?: number }>;
   jobId: string;
   jobTitle: string;
   company: string;
-  jobMatch: number;
-  skills: string[];
-  experience: string;
-  education: string;
+  skills?: string[];
+  experience?: string;
+  education?: string;
   notes?: string[];
+  notesHistory?: Array<{
+    id: string;
+    content: string;
+    isPublic: boolean;
+    createdAt: string;
+    authorId?: string;
+    authorName?: string;
+  }>;
 }
 
 interface Job {
@@ -97,6 +117,10 @@ export default function ApplicationsList() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [previewDocument, setPreviewDocument] = useState<{ url: string; name: string } | null>(null);
+  const [newNote, setNewNote] = useState<string>('');
+  const [isPublicNote, setIsPublicNote] = useState<boolean>(true);
+  const [submittingNote, setSubmittingNote] = useState<boolean>(false);
 
   useEffect(() => {
     // Get jobId and candidateId from URL if they exist
@@ -173,7 +197,8 @@ export default function ApplicationsList() {
         skills: Array.isArray(candidate.skills) ? candidate.skills : [],
         experience: candidate.experience || 'Not specified',
         education: candidate.education || 'Not specified',
-        notes: Array.isArray(candidate.notes) ? candidate.notes : []
+        notes: Array.isArray(candidate.notes) ? candidate.notes : [],
+        notesHistory: Array.isArray(candidate.notesHistory) ? candidate.notesHistory : []
       }));
       
       setCandidates(candidatesData);
@@ -254,6 +279,56 @@ export default function ApplicationsList() {
       }
     } catch (error) {
       console.error('Error updating application status:', error);
+    }
+  };
+
+  const addNote = async () => {
+    if (!selectedCandidate || !newNote.trim()) return;
+    
+    try {
+      setSubmittingNote(true);
+      
+      const response = await api.post(`/applications/${selectedCandidate.id}/notes`, {
+        content: newNote.trim(),
+        isPublic: isPublicNote
+      });
+      
+      const newNoteItem = response.data.data.note;
+      
+      // Update local state with defensive coding
+      const updatedCandidate = {
+        ...selectedCandidate,
+        notesHistory: [
+          ...(selectedCandidate.notesHistory || []),
+          newNoteItem
+        ]
+      };
+      
+      // If public, also update publicNotes array
+      if (isPublicNote) {
+        updatedCandidate.publicNotes = [
+          ...(selectedCandidate.publicNotes || []),
+          newNote.trim()
+        ];
+      }
+      
+      setSelectedCandidate(updatedCandidate);
+      
+      // Update in the full candidates list as well
+      setCandidates(prev => 
+        prev.map(candidate => 
+          candidate.id === selectedCandidate.id ? updatedCandidate : candidate
+        )
+      );
+      
+      // Clear input
+      setNewNote('');
+      
+    } catch (error) {
+      console.error('Error adding note:', error);
+      alert('Failed to add note. Please try again.');
+    } finally {
+      setSubmittingNote(false);
     }
   };
 
@@ -338,62 +413,66 @@ export default function ApplicationsList() {
   });
 
   // Render a candidate card for the sidebar
-  const renderCandidateItem = (candidate: Candidate) => (
-    <div
-      key={candidate.id}
-      className={`p-4 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer ${
-        selectedCandidate?.id === candidate.id ? 'bg-accent border-primary' : 'border-border'
-      }`}
-      onClick={() => setSelectedCandidate(candidate)}
-    >
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-          {candidate.avatar ? (
-            <img
-              src={candidate.avatar}
-              alt={candidate.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <Users className="h-5 w-5 text-muted-foreground" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-foreground text-sm truncate">{candidate.name}</h4>
-            <button 
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleStarCandidate(candidate.id);
-              }}
-            >
-              {candidate.starred ? (
-                <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-              ) : (
-                <StarOff className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
+  const renderCandidateItem = (candidate: Candidate) => {
+    if (!candidate) return null; // Guard against null candidate
+    
+    return (
+      <div
+        key={candidate.id}
+        className={`p-4 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer ${
+          selectedCandidate?.id === candidate.id ? 'bg-accent border-primary' : 'border-border'
+        }`}
+        onClick={() => setSelectedCandidate(candidate)}
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+            {candidate.avatar ? (
+              <img
+                src={candidate.avatar}
+                alt={candidate.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <Users className="h-5 w-5 text-muted-foreground" />
+            )}
           </div>
-          <div className="flex flex-wrap gap-1 my-1">
-            <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
-              {candidate.matchScore}% Match
-            </Badge>
-            <Badge 
-              variant="outline"
-              className={`text-xs ${getStatusColor(candidate.status)}`}
-            >
-              {candidate.status.charAt(0).toUpperCase() + candidate.status.slice(1)}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-            <Calendar className="h-3 w-3" />
-            <span>{new Date(candidate.appliedDate).toLocaleDateString()}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-foreground text-sm truncate">{candidate.name}</h4>
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleStarCandidate(candidate.id);
+                }}
+              >
+                {candidate.starred ? (
+                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                ) : (
+                  <StarOff className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1 my-1">
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                {candidate.matchScore}% Match
+              </Badge>
+              <Badge 
+                variant="outline"
+                className={`text-xs ${getStatusColor(candidate.status)}`}
+              >
+                {candidate.status.charAt(0).toUpperCase() + candidate.status.slice(1)}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+              <Calendar className="h-3 w-3" />
+              <span>{new Date(candidate.appliedDate).toLocaleDateString()}</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const handleRefresh = () => {
     setLoading(true);
@@ -680,19 +759,40 @@ export default function ApplicationsList() {
                       <h3 className="text-sm font-medium text-muted-foreground">Documents</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {selectedCandidate.resumeUrl && (
-                          <Button variant="outline" size="sm" asChild className="w-full">
-                            <a 
-                              href={selectedCandidate.resumeUrl.startsWith('http') 
-                                ? selectedCandidate.resumeUrl 
-                                : `${api.defaults.baseURL?.replace('/api', '')}${selectedCandidate.resumeUrl}`
-                              } 
-                              target="_blank" 
-                              rel="noopener noreferrer"
+                          <div className="flex gap-2 w-full">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="flex-1"
+                              onClick={() => {
+                                if (!selectedCandidate.resumeUrl) return;
+                                
+                                const url = selectedCandidate.resumeUrl.startsWith('http') 
+                                  ? selectedCandidate.resumeUrl 
+                                  : `${api.defaults.baseURL?.replace('/api', '')}${selectedCandidate.resumeUrl}`;
+                                setPreviewDocument({ 
+                                  url: selectedCandidate.resumeUrl, 
+                                  name: selectedCandidate.resumeFileName || 'Resume.pdf' 
+                                });
+                              }}
                             >
-                              <FileText className="h-4 w-4 mr-2" />
-                              View Resume
-                            </a>
-                          </Button>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Preview Resume
+                            </Button>
+                            <Button variant="outline" size="sm" asChild>
+                              <a 
+                                href={selectedCandidate.resumeUrl.startsWith('http') 
+                                  ? selectedCandidate.resumeUrl 
+                                  : `${api.defaults.baseURL?.replace('/api', '')}${selectedCandidate.resumeUrl}`
+                                } 
+                                download 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                            </Button>
+                          </div>
                         )}
                         
                         {selectedCandidate.coverLetter && (
@@ -720,19 +820,35 @@ export default function ApplicationsList() {
                             <h4 className="text-sm font-medium mb-2">Additional Documents:</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {selectedCandidate.documents.map((doc, index) => (
-                                <Button key={index} variant="outline" size="sm" asChild>
-                                  <a 
-                                    href={doc.url.startsWith('http') 
-                                      ? doc.url 
-                                      : `${api.defaults.baseURL?.replace('/api', '')}${doc.url}`
+                                <div key={index} className="flex gap-2">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="flex-1"
+                                    onClick={() => {
+                                      const url = doc.url.startsWith('http') 
+                                        ? doc.url 
+                                        : `${api.defaults.baseURL?.replace('/api', '')}${doc.url}`;
+                                      setPreviewDocument({ url: doc.url, name: doc.name || `Document-${index+1}` });
+                                    }}
+                                  >
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    {doc.name || `Document-${index+1}`}
+                                  </Button>
+                                  <Button variant="outline" size="sm" asChild>
+                                    <a 
+                                      href={doc.url.startsWith('http') 
+                                        ? doc.url 
+                                        : `${api.defaults.baseURL?.replace('/api', '')}${doc.url}`
                                     } 
+                                    download 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                  >
-                                    <FileText className="h-4 w-4 mr-2" />
-                                    {doc.name || 'Document'}
-                                  </a>
-                                </Button>
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </a>
+                                  </Button>
+                                </div>
                               ))}
                             </div>
                           </div>
@@ -774,18 +890,98 @@ export default function ApplicationsList() {
                     )}
 
                     {/* Notes */}
-                    {selectedCandidate.notes && selectedCandidate.notes.length > 0 && (
-                      <div className="space-y-3">
-                        <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
-                        <div className="space-y-2">
-                          {selectedCandidate.notes.map((note, index) => (
-                            <div key={index} className="p-3 rounded-lg border border-border bg-accent/30">
-                              <p className="text-sm">{note}</p>
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted-foreground">Notes & Feedback</h3>
+                      
+                      <Tabs defaultValue="add" className="w-full">
+                        <TabsList className="grid grid-cols-2 mb-4">
+                          <TabsTrigger value="add">Add Note</TabsTrigger>
+                          <TabsTrigger value="history">Note History</TabsTrigger>
+                        </TabsList>
+                        
+                        <TabsContent value="add" className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="new-note">Add a note about this candidate</Label>
+                            <Textarea
+                              id="new-note"
+                              placeholder="Enter your feedback, interview notes, or candidate assessment..."
+                              value={newNote}
+                              onChange={(e) => setNewNote(e.target.value)}
+                              rows={4}
+                              className="resize-none"
+                            />
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                id="public-note"
+                                checked={isPublicNote}
+                                onCheckedChange={setIsPublicNote}
+                              />
+                              <Label htmlFor="public-note" className="text-sm">
+                                {isPublicNote ? "Visible to applicant" : "Private note (recruiters only)"}
+                              </Label>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                            
+                            <Button 
+                              onClick={addNote} 
+                              disabled={!newNote.trim() || submittingNote}
+                              size="sm"
+                            >
+                              {submittingNote ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Saving...
+                                </>
+                              ) : (
+                                "Add Note"
+                              )}
+                            </Button>
+                          </div>
+                        </TabsContent>
+                        
+                        <TabsContent value="history">
+                          {selectedCandidate.notesHistory && selectedCandidate.notesHistory.length > 0 ? (
+                            <div className="space-y-3">
+                              {selectedCandidate.notesHistory.map((note) => (
+                                <div 
+                                  key={note.id} 
+                                  className={`p-3 rounded-lg border ${
+                                    note.isPublic 
+                                      ? 'bg-green-500/10 border-green-500/30' 
+                                      : 'bg-amber-500/10 border-amber-500/30'
+                                  }`}
+                                >
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(note.createdAt).toLocaleString()}
+                                    </span>
+                                    <Badge variant="outline" className={
+                                      note.isPublic 
+                                        ? 'bg-green-500/10 text-green-500 border-green-500/20' 
+                                        : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                    }>
+                                      {note.isPublic ? "Visible to applicant" : "Private"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                                  {note.authorName && (
+                                    <p className="text-xs text-muted-foreground mt-2">
+                                      - {note.authorName}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-8">
+                              <p className="text-muted-foreground">No notes have been added yet</p>
+                            </div>
+                          )}
+                        </TabsContent>
+                      </Tabs>
+                    </div>
                   </CardContent>
                   
                   <CardFooter className="flex flex-wrap gap-2 border-t pt-6">
@@ -839,6 +1035,18 @@ export default function ApplicationsList() {
           </Card>
         )}
       </div>
+
+      {/* Document Preview Dialog */}
+      <Dialog open={!!previewDocument} onOpenChange={() => setPreviewDocument(null)}>
+        <DialogContent className="sm:max-w-4xl sm:max-h-[80vh] overflow-y-auto bg-background">
+          <DialogHeader>
+            <DialogTitle>Document Preview: {previewDocument?.name}</DialogTitle>
+          </DialogHeader>
+          {previewDocument && (
+            <DocumentPreview url={previewDocument.url} fileName={previewDocument.name} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -4,7 +4,8 @@ import {
   getMyApplications,
   getCandidates,
   updateApplicationStatus,
-  uploadDocuments
+  uploadDocuments,
+  addApplicationNote
 } from '../controllers/applicationController';
 import { protect, restrictTo } from '../middleware/authMiddleware';
 
@@ -19,5 +20,6 @@ router.get('/candidates', restrictTo('recruiter'), getCandidates);
 
 router.post('/:jobId', uploadDocuments.array('documents', 5), applyToJob);
 router.patch('/:id/status', restrictTo('recruiter'), updateApplicationStatus);
+router.post('/:applicationId/notes', protect, addApplicationNote);
 
 export default router;

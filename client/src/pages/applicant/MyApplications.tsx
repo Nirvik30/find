@@ -31,6 +31,7 @@ import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import api from '@/lib/api';
 
+// Update the Application interface to include notes
 interface Application {
   id: string;
   jobId: string;
@@ -44,6 +45,7 @@ interface Application {
   lastUpdated: string;
   resumeName?: string;
   coverLetter?: string;
+  publicNotes?: string[];
 }
 
 export default function MyApplications() {
@@ -85,7 +87,8 @@ export default function MyApplications() {
         appliedDate: app.appliedDate || new Date().toISOString(),
         lastUpdated: app.lastUpdated || app.appliedDate || new Date().toISOString(),
         resumeName: app.resumeId?.name,
-        coverLetter: app.coverLetter
+        coverLetter: app.coverLetter,
+        publicNotes: app.publicNotes // Map publicNotes from the response
       }));
       
       setApplications(mappedApplications);
@@ -428,6 +431,17 @@ export default function MyApplications() {
                       <div className="mt-3 p-3 bg-muted/30 rounded border">
                         <p className="text-sm font-medium mb-1">Your Message:</p>
                         <p className="text-sm text-muted-foreground">{application.coverLetter}</p>
+                      </div>
+                    )}
+
+                    {application.publicNotes && application.publicNotes.length > 0 && (
+                      <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded">
+                        <p className="text-sm font-medium mb-1">Recruiter Feedback:</p>
+                        {application.publicNotes.map((note, index) => (
+                          <div key={index} className="mb-2 last:mb-0">
+                            <p className="text-sm text-foreground whitespace-pre-wrap">{note}</p>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

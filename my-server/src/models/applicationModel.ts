@@ -13,7 +13,16 @@ export interface IApplication extends Document {
     url: string;
     size: number;
   }>;
-  notes?: string;
+  notes?: string; // Legacy field for backward compatibility
+  publicNotes?: string[];
+  notesHistory?: Array<{
+    id: string;
+    content: string;
+    isPublic: boolean;
+    createdAt: string;
+    authorId?: string;
+    authorName?: string;
+  }>;
   priority?: 'low' | 'normal' | 'high';
   matchScore?: number;
 }
@@ -57,6 +66,27 @@ const applicationSchema = new Schema<IApplication>({
     size: Number
   }],
   notes: String,
+  publicNotes: [String],
+  notesHistory: [{
+    id: {
+      type: String,
+      required: true
+    },
+    content: {
+      type: String,
+      required: true
+    },
+    isPublic: {
+      type: Boolean,
+      default: true
+    },
+    createdAt: {
+      type: String,
+      required: true
+    },
+    authorId: String,
+    authorName: String
+  }],
   priority: {
     type: String,
     enum: ['low', 'normal', 'high'],

@@ -389,42 +389,57 @@ export const getCandidates = async (req: AuthRequest, res: Response): Promise<vo
       .sort({ appliedDate: -1 });
     
     // Format data for frontend
-    const candidates = applications.map(app => {
-      const baseUrl = req.protocol + '://' + req.get('host');
-      const resumeUrl = app.resumeId ? 
-        `${baseUrl}/uploads/resumes/${(app.resumeId as any)?.fileName}` : 
-        '';
-      
-      // Format documents with full URLs
-      const documents = app.documents?.map((doc: any) => ({
-        name: doc.name,
-        url: doc.url.startsWith('http') ? doc.url : `${baseUrl}${doc.url}`
-      })) || [];
-      
-      return {
-        id: app._id.toString(),
-        name: (app.applicantId as any).name,
-        email: (app.applicantId as any).email,
-        phone: (app.applicantId as any).phone || '',
-        location: (app.applicantId as any).location || 'Not specified',
-        avatar: (app.applicantId as any).avatar || '',
-        matchScore: app.matchScore || Math.floor(Math.random() * 30) + 70, // Temp logic
-        status: app.status,
-        appliedDate: app.appliedDate.toISOString(),
-        lastActivity: (app.lastUpdated || app.appliedDate).toISOString(),
-        resumeUrl: resumeUrl,
-        coverLetter: app.coverLetter,
-        documents: documents,
-        jobId: (app.jobId as any)._id.toString(),
-        jobTitle: (app.jobId as any).title,
-        company: (app.jobId as any).company,
-        jobMatch: app.matchScore || Math.floor(Math.random() * 30) + 70, // Temp logic
-        skills: (app.applicantId as any).skills || [],
-        experience: 'Not specified',
-        education: 'Not specified',
-        notes: app.notes ? [app.notes] : []
-      };
-    });
+    let candidates = await Promise.all(applications.map(async (app) => {
+      try {
+        const applicant = app.applicantId as any;
+        const job = app.jobId as any;
+        const resume = app.resumeId as any;
+        
+        // Safe property access with fallbacks
+        return {
+          id: app._id.toString(),
+          name: applicant?.name || 'Unknown Candidate',
+          email: applicant?.email || 'No email provided',
+          phone: applicant?.phone || undefined,
+          avatar: applicant?.avatar || undefined,
+          location: applicant?.location || 'Location not specified',
+          matchScore: Math.floor(Math.random() * 30) + 70, // Random match for demo
+          starred: false,
+          status: app.status || 'pending',
+          appliedDate: app.appliedDate.toISOString(),
+          lastActivity: app.lastUpdated ? app.lastUpdated.toISOString() : app.appliedDate.toISOString(),
+          resumeUrl: resume?.fileUrl || undefined,
+          resumeFileName: resume?.fileName || 'Resume',
+          coverLetter: app.coverLetter || '',
+          documents: Array.isArray(app.documents) ? app.documents : [],
+          jobId: job?._id?.toString() || '',
+          jobTitle: job?.title || 'Unknown Position',
+          company: job?.company || 'Unknown Company',
+          skills: Array.isArray(applicant?.skills) ? applicant.skills : [],
+          experience: 'Not specified',
+          education: 'Not specified',
+          notes: app.publicNotes || [],
+          notesHistory: app.notesHistory || []
+        };
+      } catch (error) {
+        console.error('Error mapping application:', error);
+        // Return a minimal valid object if mapping fails
+        return {
+          id: app._id.toString(),
+          name: 'Error loading candidate',
+          email: '',
+          jobTitle: 'Error loading job details',
+          jobId: '',
+          company: '',
+          matchScore: 0,
+          starred: false,
+          status: 'pending',
+          appliedDate: new Date().toISOString(),
+          location: '',
+          skills: []
+        };
+      }
+    }));
     
     // Apply search filter
     let filteredCandidates = candidates;
@@ -451,6 +466,104 @@ export const getCandidates = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to retrieve candidates'
+    });
+  }
+};
+
+// Add a note to an application
+export const addApplicationNote = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { applicationId } = req.params;
+    const { content, isPublic = true } = req.body;
+    
+    if (!content?.trim()) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Note content is required'
+      });
+      return;
+    }
+    
+    // Find the application
+    const application = await Application.findById(applicationId);
+    
+    if (!application) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Application not found'
+      });
+      return;
+    }
+    
+    // Check permissions - only recruiters who own the job can add notes
+    if (req.user?.role === 'recruiter') {
+      const job = await Job.findById(application.jobId);
+      if (!job || job.recruiterId.toString() !== req.user.id) {
+        res.status(403).json({
+          status: 'fail',
+          message: 'You can only add notes to applications for your own jobs'
+        });
+        return;
+      }
+    } else if (req.user?.role !== 'admin') {
+      res.status(403).json({
+        status: 'fail',
+        message: 'Only recruiters and admins can add notes'
+      });
+      return;
+    }
+    
+    // Create the note with proper structure
+    const noteId = new mongoose.Types.ObjectId().toString();
+    const note = {
+      id: noteId,
+      content: content.trim(),
+      isPublic: !!isPublic, // Ensure boolean type
+      createdAt: new Date().toISOString(),
+      authorId: req.user?.id || '',
+      authorName: req.user?.name || 'Recruiter'
+    };
+    
+    // Use $push operator to add to the arrays instead of direct manipulation
+    const updateData: any = {
+      $push: {
+        notesHistory: note
+      },
+      lastUpdated: new Date()
+    };
+    
+    // Add to public notes if visible to applicant
+    if (isPublic) {
+      updateData.$push.publicNotes = note.content;
+    }
+    
+    // Update the application using findByIdAndUpdate for atomic operation
+    const updatedApplication = await Application.findByIdAndUpdate(
+      applicationId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    if (!updatedApplication) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Failed to update application with new note'
+      });
+      return;
+    }
+    
+    res.status(201).json({
+      status: 'success',
+      data: {
+        note
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error adding note:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to add note'
     });
   }
 };

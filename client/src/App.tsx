@@ -25,6 +25,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Create simple page components with theme toggle
 const HomePage = () => (
@@ -184,7 +185,11 @@ function App() {
                 path="/recruiter/applications"
                 element={
                   <ProtectedRoute
-                    element={<ApplicationsList />}
+                    element={
+                      <ErrorBoundary>
+                        <ApplicationsList />
+                      </ErrorBoundary>
+                    }
                     allowedRoles={['recruiter']}
                   />
                 }
