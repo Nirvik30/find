@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+// Import cookie-parser with proper type definitions
+import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
-import path from 'path';
-import dotenv from 'dotenv';
 
 // Import routes
 import authRoutes from './routes/authRoutes';
@@ -14,9 +14,6 @@ import messageRoutes from './routes/messageRoutes';
 import userRoutes from './routes/userRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 
-// Load environment variables
-dotenv.config();
-
 const app = express();
 
 // Middleware
@@ -26,10 +23,11 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(morgan('dev'));
 
 // Make the uploads folder accessible
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static('uploads'));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -40,5 +38,10 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
+
+// Root route
+app.get('/', (req, res) => {
+  res.send('JobFinder API is running');
+});
 
 export default app;

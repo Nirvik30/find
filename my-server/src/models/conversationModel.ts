@@ -1,59 +1,68 @@
-import mongoose, { Schema, Document } from 'mongoose';
-
-export interface IParticipant {
-  userId: mongoose.Schema.Types.ObjectId;
-  role: 'applicant' | 'recruiter' | 'hr' | 'hiring_manager' | 'admin';
-  lastSeen?: Date;
-  isTyping?: boolean;
-}
+import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IConversation extends Document {
-  participants: IParticipant[];
-  jobId?: mongoose.Schema.Types.ObjectId;
-  lastMessageAt: Date;
+  participants: {
+    userId: mongoose.Types.ObjectId;
+    role: string;
+    isTyping: boolean;
+    lastSeen: Date;
+  }[];
+  jobId?: mongoose.Types.ObjectId;
+  jobTitle?: string;
+  lastMessage?: {
+    id: mongoose.Types.ObjectId;
+    senderId: string;
+    content: string;
+    timestamp: Date;
+  };
+  unreadCount: Record<string, number>; // Changed from number to Record
+  archived: boolean;
   createdAt: Date;
   updatedAt: Date;
-  archived: boolean;
-  unreadCount: Record<string, number>; // Maps userId to number of unread messages
 }
 
 const conversationSchema = new Schema<IConversation>({
   participants: [{
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: 'User',
       required: true
     },
     role: {
       type: String,
-      enum: ['applicant', 'recruiter', 'hr', 'hiring_manager', 'admin'],
       required: true
-    },
-    lastSeen: {
-      type: Date,
-      default: Date.now
     },
     isTyping: {
       type: Boolean,
       default: false
+    },
+    lastSeen: {
+      type: Date,
+      default: Date.now
     }
   }],
   jobId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'Job'
   },
-  lastMessageAt: {
-    type: Date,
-    default: Date.now
-  },
-  archived: {
-    type: Boolean,
-    default: false
+  jobTitle: String,
+  lastMessage: {
+    id: {
+      type: Schema.Types.ObjectId,
+      ref: 'Message'
+    },
+    senderId: String,
+    content: String,
+    timestamp: Date
   },
   unreadCount: {
     type: Map,
     of: Number,
-    default: new Map()
+    default: {}
+  },
+  archived: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useChat } from '@/contexts/ChatContext'; // Import our new hook
+import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -19,131 +18,83 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
   Search,
   MessageCircle,
-  Building2,
-  Clock,
+  Briefcase,
   Send,
-  Paperclip,
-  Phone,
-  Video,
-  Star,
-  Archive,
-  Trash2,
   ArrowLeft,
   User,
-  Calendar,
   CheckCheck,
   Check,
-  AlertCircle,
+  Circle,
+  Loader2,
+  Plus,
   Filter,
-  MoreVertical,
-  Reply,
-  Forward,
-  Circle, // For online status indicator
-  Loader2 // For loading state
+  Phone,
+  Video
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
-// Import or define the required interfaces
-interface Attachment {
-  id: string;
-  name: string;
-  size: string;
-  type: string;
-  url: string;
-}
-
-interface Message {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderRole: 'recruiter' | 'hr' | 'hiring_manager' | 'system';
-  senderCompany: string;
-  senderAvatar?: string;
-  subject: string;
-  content: string;
-  timestamp: string;
-  read: boolean;
-  starred: boolean;
-  attachments?: Attachment[];
-  jobId?: string;
-  jobTitle?: string;
-  messageType: 'interview' | 'application_update' | 'general' | 'offer' | 'rejection' | 'system';
-  priority: 'high' | 'medium' | 'low';
-}
-
-interface Participant {
-  id: string;
-  name: string;
-  role: string;
-  company: string;
-  avatar?: string;
-  isOnline?: boolean;
-  isTyping?: boolean;
-  lastSeen?: string;
-}
-
-interface Conversation {
-  id: string;
-  participants: Participant[];
-  lastMessage: Message;
-  unreadCount: number;
-  jobId?: string;
-  jobTitle?: string;
-  company: string;
-  archived: boolean;
-}
-
 export default function Messages() {
   const { user } = useAuth();
-  
-  // Use the real-time chat context
   const { 
     conversations, 
     messages, 
+    chatPartners,
     sendMessage,
+    selectConversation: selectChatConversation,
+    createConversation,
     markAsRead,
     startTyping,
     stopTyping,
     onlineUsers,
-    typingUsers,
     isConnected,
     loadingConversations,
     loadingMessages,
-    selectConversation: selectChatConversation
+    loadingChatPartners,
+    fetchChatPartners
   } = useChat();
 
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<any>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
+  const [showNewChatDialog, setShowNewChatDialog] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState<string>('');
   
-  // Refs
   const messageEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // When conversation is selected, load its messages and call the ChatContext's selectConversation
+  // Fetch chat partners on component mount
+  useEffect(() => {
+    if (!loadingChatPartners && chatPartners.length === 0) {
+      fetchChatPartners();
+    }
+  }, [fetchChatPartners, loadingChatPartners, chatPartners.length]);
+
+  // Handle conversation selection
   useEffect(() => {
     if (selectedConversation && selectChatConversation) {
-      // Call the context's selectConversation to fetch messages
       selectChatConversation(selectedConversation);
       
       const conversationMessages = messages[selectedConversation.id] || [];
       
-      // Mark unread messages as read
       conversationMessages.forEach(message => {
         if (!message.read && message.senderId !== user?.id) {
           markAsRead(selectedConversation.id, message.id);
         }
       });
       
-      // Scroll to bottom
       scrollToBottom();
     }
   }, [selectedConversation, messages, selectChatConversation, user?.id, markAsRead]);
@@ -155,19 +106,16 @@ export default function Messages() {
     }
   }, [messages, selectedConversation]);
 
-  // Handle typing indicator with debounce
+  // Handle typing indicator
   useEffect(() => {
     if (!selectedConversation || !newMessage) return;
     
-    // Start typing
     startTyping(selectedConversation.id);
     
-    // Clear previous timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
     
-    // Set new timeout for typing end
     typingTimeoutRef.current = setTimeout(() => {
       stopTyping(selectedConversation.id);
     }, 2000);
@@ -177,10 +125,12 @@ export default function Messages() {
         clearTimeout(typingTimeoutRef.current);
       }
     };
-  }, [newMessage, selectedConversation]);
+  }, [newMessage, selectedConversation, startTyping, stopTyping]);
 
   const scrollToBottom = () => {
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
 
   const handleSendMessage = async () => {
@@ -190,6 +140,7 @@ export default function Messages() {
       setSendingMessage(true);
       await sendMessage(selectedConversation.id, newMessage);
       setNewMessage('');
+      scrollToBottom();
     } catch (error) {
       console.error('Error sending message:', error);
     } finally {
@@ -197,46 +148,34 @@ export default function Messages() {
     }
   };
 
-  const toggleStar = (messageId: string) => {
-    // Implement message starring
-    // For now we'll keep your existing implementation
-    if (!selectedConversation) return;
-    
-    // TODO: Connect to backend service via ChatContext
-  };
+  const handleStartNewChat = async () => {
+    if (!selectedPartner) return;
 
-  const archiveConversation = (conversationId: string) => {
-    // TODO: Connect to backend service via ChatContext
-  };
+    try {
+      const partner = chatPartners.find(p => p.id === selectedPartner);
+      if (!partner) return;
 
-  const deleteConversation = (conversationId: string) => {
-    // TODO: Connect to backend service via ChatContext
-    
-    if (selectedConversation?.id === conversationId) {
-      setSelectedConversation(null);
-    }
-  };
-
-  const getMessageTypeIcon = (type: string) => {
-    // Re-use your existing implementation
-    switch (type) {
-      case 'interview':
-        return <Calendar className="h-4 w-4 text-blue-500" />;
-      case 'offer':
-        return <Star className="h-4 w-4 text-green-500" />;
-      case 'rejection':
-        return <AlertCircle className="h-4 w-4 text-red-500" />;
-      case 'application_update':
-        return <MessageCircle className="h-4 w-4 text-yellow-500" />;
-      case 'system':
-        return <AlertCircle className="h-4 w-4 text-gray-500" />;
-      default:
-        return <MessageCircle className="h-4 w-4 text-muted-foreground" />;
+      const conversationId = await createConversation(
+        selectedPartner, 
+        partner.jobId, 
+        `Hello! I'd like to discuss the ${partner.jobTitle} position.`
+      );
+      
+      // Find and select the new conversation
+      const newConversation = conversations.find(c => c.id === conversationId);
+      if (newConversation) {
+        setSelectedConversation(newConversation);
+      }
+      
+      setShowNewChatDialog(false);
+      setSelectedPartner('');
+    } catch (error) {
+      console.error('Error starting new chat:', error);
+      alert('Failed to start conversation. Please try again.');
     }
   };
 
   const getMessageTypeColor = (type: string) => {
-    // Re-use your existing implementation
     switch (type) {
       case 'interview':
         return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
@@ -254,7 +193,6 @@ export default function Messages() {
   };
 
   const formatTime = (timestamp: string) => {
-    // Re-use your existing implementation
     const date = new Date(timestamp);
     const now = new Date();
     const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
@@ -270,9 +208,10 @@ export default function Messages() {
 
   const filteredConversations = conversations.filter(conv => {
     const matchesSearch = 
-      conv.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      conv.jobTitle?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      conv.lastMessage?.content.toLowerCase().includes(searchTerm.toLowerCase());
+      (conv.participants[0]?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (conv.company || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (conv.jobTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (conv.lastMessage?.content || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = !filterType || conv.lastMessage?.messageType === filterType;
     
     return matchesSearch && matchesType && !conv.archived;
@@ -284,7 +223,7 @@ export default function Messages() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-muted-foreground">Loading messages...</p>
         </div>
       </div>
@@ -307,7 +246,7 @@ export default function Messages() {
               <div>
                 <h1 className="text-3xl font-bold text-foreground">Messages</h1>
                 <p className="text-muted-foreground mt-1">
-                  Communicate with recruiters and hiring managers
+                  Communicate with recruiters
                   {totalUnread > 0 && (
                     <span className="ml-2 text-primary">
                       ({totalUnread} unread)
@@ -325,6 +264,70 @@ export default function Messages() {
                 <Filter className="h-4 w-4 mr-2" />
                 Filters
               </Button>
+              {!loadingChatPartners && chatPartners.length > 0 && (
+                <Dialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Chat
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Start New Conversation</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <Select value={selectedPartner} onValueChange={setSelectedPartner}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a recruiter to message" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {chatPartners.map(partner => (
+                            <SelectItem key={partner.id} value={partner.id}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                                  {partner.avatar ? (
+                                    <img 
+                                      src={partner.avatar} 
+                                      alt={partner.name}
+                                      className="w-6 h-6 rounded-full object-cover" 
+                                    />
+                                  ) : (
+                                    <User className="h-3 w-3" />
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="font-medium">{partner.name}</span>
+                                  {partner.jobTitle && (
+                                    <span className="text-sm text-muted-foreground ml-2">
+                                      - {partner.jobTitle}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={handleStartNewChat}
+                          disabled={!selectedPartner}
+                          className="flex-1"
+                        >
+                          Start Conversation
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setShowNewChatDialog(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
           </div>
 
@@ -366,7 +369,7 @@ export default function Messages() {
       </div>
 
       <div className="container mx-auto px-6 py-8">
-        {/* Connection Status Indicator - New */}
+        {/* Connection Status */}
         <div className={`flex items-center justify-end mb-2 ${isConnected ? 'text-green-500' : 'text-amber-500'}`}>
           <div className="flex items-center gap-2 text-sm">
             <Circle className={`h-2 w-2 ${isConnected ? 'fill-green-500' : 'fill-amber-500'}`} />
@@ -381,7 +384,7 @@ export default function Messages() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MessageCircle className="h-5 w-5" />
-                  Conversations
+                  Recruiters
                 </CardTitle>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -406,7 +409,6 @@ export default function Messages() {
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        {/* Avatar with Online Status Indicator - Enhanced */}
                         <div className="relative">
                           <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
                             {conversation.participants[0]?.avatar ? (
@@ -419,11 +421,9 @@ export default function Messages() {
                               <User className="h-5 w-5 text-muted-foreground" />
                             )}
                           </div>
-                          {/* Online Status Indicator - New */}
                           {conversation.participants[0]?.isOnline && (
                             <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-background rounded-full"></div>
                           )}
-                          {/* Unread Badge */}
                           {conversation.unreadCount > 0 && (
                             <div className="absolute -top-1 -right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
                               <span className="text-xs text-primary-foreground font-semibold">
@@ -441,9 +441,8 @@ export default function Messages() {
                               {conversation.participants[0]?.name || conversation.company}
                             </h4>
                             <div className="flex items-center gap-1">
-                              {getMessageTypeIcon(conversation.lastMessage.messageType)}
                               <span className="text-xs text-muted-foreground">
-                                {formatTime(conversation.lastMessage.timestamp)}
+                                {conversation.lastMessage ? formatTime(conversation.lastMessage.timestamp) : ''}
                               </span>
                             </div>
                           </div>
@@ -453,12 +452,14 @@ export default function Messages() {
                           </p>
                           
                           {conversation.jobTitle && (
-                            <p className="text-xs text-primary mb-2">
-                              {conversation.jobTitle}
-                            </p>
+                            <div className="flex items-center gap-1 mb-2">
+                              <Briefcase className="h-3 w-3 text-primary" />
+                              <p className="text-xs text-primary truncate">
+                                {conversation.jobTitle}
+                              </p>
+                            </div>
                           )}
                           
-                          {/* Display typing indicator - New */}
                           {conversation.participants.some(p => p.isTyping) ? (
                             <p className="text-sm text-primary italic">
                               Typing...
@@ -467,18 +468,20 @@ export default function Messages() {
                             <p className={`text-sm truncate ${
                               conversation.unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
                             }`}>
-                              {conversation.lastMessage.content}
+                              {conversation.lastMessage?.content || 'No messages yet'}
                             </p>
                           )}
                           
                           <div className="flex items-center gap-2 mt-2">
-                            <Badge 
-                              variant="outline"
-                              className={`text-xs ${getMessageTypeColor(conversation.lastMessage.messageType)}`}
-                            >
-                              {conversation.lastMessage.messageType.replace('_', ' ')}
-                            </Badge>
-                            {conversation.lastMessage.priority === 'high' && (
+                            {conversation.lastMessage && (
+                              <Badge 
+                                variant="outline"
+                                className={`text-xs ${getMessageTypeColor(conversation.lastMessage.messageType)}`}
+                              >
+                                {conversation.lastMessage.messageType.replace('_', ' ')}
+                              </Badge>
+                            )}
+                            {conversation.lastMessage?.priority === 'high' && (
                               <Badge variant="destructive" className="text-xs">
                                 High Priority
                               </Badge>
@@ -495,11 +498,25 @@ export default function Messages() {
                       <h3 className="text-lg font-semibold text-foreground mb-2">
                         No conversations found
                       </h3>
-                      <p className="text-muted-foreground">
+                      <p className="text-muted-foreground mb-4">
                         {conversations.length === 0
                           ? "You don't have any messages yet"
                           : "Try adjusting your search or filters"}
                       </p>
+                      {!loadingChatPartners && chatPartners.length > 0 && conversations.length === 0 && (
+                        <Button 
+                          onClick={() => setShowNewChatDialog(true)}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Start Your First Chat
+                        </Button>
+                      )}
+                      {loadingChatPartners && (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span className="text-sm text-muted-foreground">Loading recruiters...</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -507,14 +524,13 @@ export default function Messages() {
             </Card>
           </div>
 
-          {/* Message Thread - With Real-Time Enhancements */}
+          {/* Message Thread */}
           <div className="lg:col-span-2">
             {selectedConversation ? (
               <Card className="h-full flex flex-col">
                 <CardHeader className="border-b border-border">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {/* Avatar with online status */}
                       <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
                           {selectedConversation.participants[0]?.avatar ? (
@@ -527,7 +543,6 @@ export default function Messages() {
                             <User className="h-5 w-5 text-muted-foreground" />
                           )}
                         </div>
-                        {/* Online Status Indicator - New */}
                         {selectedConversation.participants[0]?.isOnline && (
                           <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-background rounded-full"></div>
                         )}
@@ -554,20 +569,6 @@ export default function Messages() {
                       <Button variant="outline" size="sm">
                         <Video className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => archiveConversation(selectedConversation.id)}
-                      >
-                        <Archive className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => deleteConversation(selectedConversation.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -581,27 +582,19 @@ export default function Messages() {
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-6">
-                      {/* Display messages */}
+                    <div className="space-y-4">
                       {messages[selectedConversation.id]?.map((message) => (
-                        <div key={message.id} className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                                {message.senderAvatar ? (
-                                  <img 
-                                    src={message.senderAvatar} 
-                                    alt={message.senderName}
-                                    className="w-8 h-8 rounded-full object-cover" 
-                                  />
-                                ) : (
-                                  <User className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </div>
-                              <span className="font-medium text-foreground">
-                                {message.senderName}
+                        <div key={message.id} className={`flex ${message.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] rounded-lg p-3 ${
+                            message.senderId === user?.id 
+                              ? 'bg-primary text-primary-foreground' 
+                              : 'bg-muted'
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium">
+                                {message.senderId === user?.id ? 'You' : message.senderName}
                               </span>
-                              <span className="text-sm text-muted-foreground">
+                              <span className="text-xs opacity-70">
                                 {formatTime(message.timestamp)}
                               </span>
                               <Badge 
@@ -612,86 +605,44 @@ export default function Messages() {
                               </Badge>
                             </div>
                             
-                            <div className="flex gap-1">
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                onClick={() => toggleStar(message.id)}
-                              >
-                                <Star className={`h-4 w-4 ${message.starred ? 'fill-current text-yellow-500' : 'text-muted-foreground'}`} />
-                              </Button>
-                              <Button variant="ghost" size="sm">
-                                <Reply className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="bg-muted/50 rounded-lg p-4 ml-10">
                             {message.subject && (
-                              <h4 className="font-semibold text-foreground mb-2">
+                              <h4 className="font-semibold mb-1 text-sm">
                                 {message.subject}
                               </h4>
                             )}
-                            <p className="text-foreground whitespace-pre-wrap">
+                            
+                            <p className="text-sm whitespace-pre-wrap">
                               {message.content}
                             </p>
-
-                            {message.attachments && message.attachments.length > 0 && (
-                              <div className="mt-4 space-y-2">
-                                <p className="text-sm font-medium text-foreground">Attachments:</p>
-                                {message.attachments.map((attachment) => (
-                                  <div 
-                                    key={attachment.id}
-                                    className="flex items-center gap-2 p-2 bg-background rounded border border-border"
-                                  >
-                                    <Paperclip className="h-4 w-4 text-muted-foreground" />
-                                    <span className="text-sm text-foreground">{attachment.name}</span>
-                                    <span className="text-xs text-muted-foreground">({attachment.size})</span>
-                                    <Button variant="ghost" size="sm" className="ml-auto">
-                                      Download
-                                    </Button>
-                                  </div>
-                                ))}
+                            
+                            {message.senderId === user?.id && (
+                              <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
+                                {message.read ? (
+                                  <>
+                                    <CheckCheck className="h-3 w-3" />
+                                    <span>Read</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    <span>Delivered</span>
+                                  </>
+                                )}
                               </div>
                             )}
-                          </div>
-
-                          <div className="flex items-center gap-2 ml-10 text-xs text-muted-foreground">
-                            {message.read ? (
-                              <CheckCheck className="h-3 w-3 text-blue-500" />
-                            ) : (
-                              <Check className="h-3 w-3" />
-                            )}
-                            <span>
-                              {message.read ? 'Read' : 'Delivered'}
-                            </span>
                           </div>
                         </div>
                       ))}
                       
                       {/* Typing indicator */}
                       {selectedConversation.participants.some(p => p.isTyping) && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                              {selectedConversation.participants[0]?.avatar ? (
-                                <img 
-                                  src={selectedConversation.participants[0].avatar} 
-                                  alt={selectedConversation.participants[0].name}
-                                  className="w-8 h-8 rounded-full object-cover" 
-                                />
-                              ) : (
-                                <User className="h-4 w-4 text-muted-foreground" />
-                              )}
+                        <div className="flex justify-start">
+                          <div className="bg-muted rounded-lg p-3 max-w-[80%]">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium">
+                                {selectedConversation.participants[0]?.name}
+                              </span>
                             </div>
-                            <span className="font-medium text-foreground">
-                              {selectedConversation.participants[0]?.name}
-                            </span>
-                          </div>
-                          <div className="bg-muted/50 rounded-lg p-4 ml-10">
                             <div className="flex space-x-1">
                               <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]"></div>
                               <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]"></div>
@@ -701,7 +652,6 @@ export default function Messages() {
                         </div>
                       )}
                       
-                      {/* Auto-scroll anchor */}
                       <div ref={messageEndRef}></div>
                     </div>
                   )}
@@ -721,22 +671,20 @@ export default function Messages() {
                           }
                         }}
                         placeholder="Type your message..."
-                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground resize-none"
+                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground resize-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         rows={3}
                         disabled={sendingMessage || !isConnected}
                       />
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <Button variant="outline" size="sm">
-                        <Paperclip className="h-4 w-4" />
-                      </Button>
+                    <div className="flex flex-col justify-end">
                       <Button 
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim() || sendingMessage || !isConnected}
                         size="sm"
+                        className="h-10"
                       >
                         {sendingMessage ? (
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                          <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Send className="h-4 w-4" />
                         )}

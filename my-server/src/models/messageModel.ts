@@ -1,44 +1,53 @@
-import mongoose, { Schema, Document } from 'mongoose';
-
-export interface IAttachment {
-  id: string;
-  name: string;
-  size: string;
-  type: string;
-  url: string;
-}
+import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IMessage extends Document {
-  conversationId: mongoose.Schema.Types.ObjectId;
-  senderId: mongoose.Schema.Types.ObjectId;
+  conversationId: mongoose.Types.ObjectId;
+  senderId: mongoose.Types.ObjectId;
+  senderName: string;
+  senderRole: string;
+  subject: string;
   content: string;
-  subject?: string;
   timestamp: Date;
-  read: Record<string, boolean>; // Maps userId to read status
+  read: { [key: string]: boolean };
   starred: boolean;
-  attachments?: IAttachment[];
-  messageType: 'interview' | 'application_update' | 'general' | 'offer' | 'rejection' | 'system';
-  priority: 'high' | 'medium' | 'low';
-  createdAt: Date;
-  updatedAt: Date;
+  attachments?: {
+    name: string;
+    url: string;
+    size: string;
+    type: string;
+  }[];
+  messageType: string;
+  priority: string;
 }
 
 const messageSchema = new Schema<IMessage>({
   conversationId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'Conversation',
     required: true
   },
   senderId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  senderName: {
+    type: String,
+    required: true
+  },
+  senderRole: {
+    type: String,
+    required: true,
+    enum: ['applicant', 'recruiter', 'admin', 'system']
+  },
+  subject: {
+    type: String,
+    default: ''
   },
   content: {
     type: String,
     required: true
   },
-  subject: String,
   timestamp: {
     type: Date,
     default: Date.now
@@ -46,33 +55,17 @@ const messageSchema = new Schema<IMessage>({
   read: {
     type: Map,
     of: Boolean,
-    default: new Map()
+    default: () => new Map()
   },
   starred: {
     type: Boolean,
     default: false
   },
   attachments: [{
-    id: {
-      type: String,
-      required: true
-    },
-    name: {
-      type: String,
-      required: true
-    },
-    size: {
-      type: String,
-      required: true
-    },
-    type: {
-      type: String,
-      required: true
-    },
-    url: {
-      type: String,
-      required: true
-    }
+    name: String,
+    url: String,
+    size: String,
+    type: String
   }],
   messageType: {
     type: String,
@@ -88,7 +81,6 @@ const messageSchema = new Schema<IMessage>({
   timestamps: true
 });
 
-messageSchema.index({ conversationId: 1 });
-messageSchema.index({ senderId: 1 });
+const Message = mongoose.model<IMessage>('Message', messageSchema);
 
-export default mongoose.model<IMessage>('Message', messageSchema);
+export default Message;

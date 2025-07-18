@@ -1,19 +1,47 @@
 import express from 'express';
-import * as messageController from '../controllers/messageController';
+import { 
+  getConversations,
+  getMessages,
+  sendMessage,
+  markAsRead,
+  toggleStar,
+  archiveConversation,
+  deleteConversation,
+  createConversation,
+  getChatPartners // Add this import
+} from '../controllers/messageController';
 import { protect } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
-// All message routes require authentication
+// Apply authentication middleware to all routes
 router.use(protect);
 
-// Conversations
-router.get('/conversations', messageController.getConversations);
-router.post('/conversations', messageController.createConversation);
-router.patch('/conversations/:conversationId/archive', messageController.updateConversationArchiveStatus);
+// Get all conversations
+router.get('/conversations', getConversations);
 
-// Messages
-router.get('/conversations/:conversationId/messages', messageController.getMessages);
-router.patch('/messages/:messageId/star', messageController.updateMessageStarStatus);
+// Get chat partners
+router.get('/chat-partners', getChatPartners); // Add this route
+
+// Get messages for a conversation
+router.get('/:conversationId', getMessages);
+
+// Send a message
+router.post('/:conversationId', sendMessage);
+
+// Mark a message as read
+router.post('/:conversationId/read', markAsRead);
+
+// Toggle star status for a message
+router.post('/:conversationId/:messageId/star', toggleStar);
+
+// Archive a conversation
+router.post('/:conversationId/archive', archiveConversation);
+
+// Delete a conversation
+router.delete('/:conversationId', deleteConversation);
+
+// Create a new conversation
+router.post('/', createConversation);
 
 export default router;

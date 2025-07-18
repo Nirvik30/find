@@ -1,15 +1,23 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { getSocket, initializeSocket, useSocket } from '@/lib/socket';
+import io, { Socket } from 'socket.io-client';
+import api from '@/lib/api';
 
-// Types from your Messages component
+interface Attachment {
+  id: string;
+  name: string;
+  size: string;
+  type: string;
+  url: string;
+}
+
 interface Message {
   id: string;
   conversationId: string;
   senderId: string;
   senderName: string;
-  senderRole: 'recruiter' | 'hr' | 'hiring_manager' | 'system';
-  senderCompany: string;
+  senderRole: 'recruiter' | 'hr' | 'hiring_manager' | 'system' | 'applicant';
+  senderCompany?: string;
   senderAvatar?: string;
   subject: string;
   content: string;
@@ -23,77 +31,148 @@ interface Message {
   priority: 'high' | 'medium' | 'low';
 }
 
-interface Conversation {
-  id: string;
-  participants: Participant[];
-  lastMessage: Message;
-  unreadCount: number;
-  jobId?: string;
-  jobTitle?: string;
-  company: string;
-  archived: boolean;
-}
-
 interface Participant {
   id: string;
   name: string;
   role: string;
-  company: string;
+  company?: string;
   avatar?: string;
   isOnline?: boolean;
   isTyping?: boolean;
   lastSeen?: string;
+  jobPosition?: string;
 }
 
-interface Attachment {
+interface Conversation {
+  id: string;
+  participants: Participant[];
+  lastMessage: Message | null;
+  unreadCount: number;
+  jobId?: string;
+  jobTitle?: string;
+  company?: string;
+  archived: boolean;
+  status?: string;
+}
+
+interface ChatPartner {
   id: string;
   name: string;
-  size: string;
-  type: string;
-  url: string;
+  role: string;
+  email: string;
+  avatar?: string;
+  company?: string;
+  jobTitle?: string;
+  jobId?: string;
+  applicationStatus?: string;
 }
 
 interface ChatContextType {
   conversations: Conversation[];
-  messages: Record<string, Message[]>;
-  sendMessage: (conversationId: string, content: string) => void;
+  messages: { [key: string]: Message[] };
+  chatPartners: ChatPartner[];
+  sendMessage: (conversationId: string, content: string, messageType?: string) => Promise<void>;
+  selectConversation: (conversation: Conversation) => void;
+  createConversation: (partnerId: string, jobId?: string, initialMessage?: string) => Promise<string>;
   markAsRead: (conversationId: string, messageId: string) => void;
   startTyping: (conversationId: string) => void;
   stopTyping: (conversationId: string) => void;
-  onlineUsers: string[];
-  typingUsers: Record<string, boolean>;
+  toggleStar: (messageId: string) => void;
+  archiveConversation: (conversationId: string) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void>;
+  onlineUsers: Set<string>;
   isConnected: boolean;
   loadingConversations: boolean;
-  loadingMessages: Record<string, boolean>;
-  selectConversation: (conversation: Conversation) => void; // Added this
+  loadingMessages: { [key: string]: boolean };
+  loadingChatPartners: boolean;
+  fetchChatPartners: () => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+export const useChat = () => {
+  const context = useContext(ChatContext);
+  if (!context) {
+    throw new Error('useChat must be used within a ChatProvider');
+  }
+  return context;
+};
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const { user, token } = useAuth();
-  const { isConnected } = useSocket(user?.id || '', token || '');
+  const { user } = useAuth();
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [messages, setMessages] = useState<Record<string, Message[]>>({});
-  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
-  const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
-  const [loadingConversations, setLoadingConversations] = useState(false);
-  const [loadingMessages, setLoadingMessages] = useState<Record<string, boolean>>({});
+  const [messages, setMessages] = useState<{ [key: string]: Message[] }>({});
+  const [chatPartners, setChatPartners] = useState<ChatPartner[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [loadingConversations, setLoadingConversations] = useState<boolean>(true);
+  const [loadingMessages, setLoadingMessages] = useState<{ [key: string]: boolean }>({});
+  const [loadingChatPartners, setLoadingChatPartners] = useState<boolean>(false);
   
-  // Update the useEffect that initializes socket connections
+  const socketRef = useRef<Socket | null>(null);
+  const chatPartnersCache = useRef<{ data: ChatPartner[]; timestamp: number } | null>(null);
+  const fetchingMessages = useRef<Set<string>>(new Set());
+  const checkedEmptyConversations = useRef<Set<string>>(new Set());
+  const lastFetchTimestamps = useRef<{ [key: string]: number }>({});
+  
+  // Initialize socket connection
   useEffect(() => {
-    // Get token from localStorage if not available from context
-    const authToken = token || localStorage.getItem('token');
-    const userId = user?.id;
+    if (!user?.id) return;
     
-    if (!userId || !authToken) return;
+    const token = localStorage.getItem('token');
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    const socketUrl = baseUrl.replace('/api', '');
     
-    const socket = initializeSocket(userId, authToken);
-    if (!socket) return;
+    const newSocket = io(socketUrl, {
+      auth: { token },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      transports: ['websocket']
+    });
     
-    // Initialize listeners for real-time events
-    socket.on("new_message", (message: Message) => {
-      // Add to messages
+    newSocket.on('connect', () => {
+      console.log('Socket connected');
+      setIsConnected(true);
+    });
+    
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setIsConnected(false);
+    });
+    
+    newSocket.on('error', (error) => {
+      console.error('Socket error:', error);
+      setIsConnected(false);
+    });
+    
+    setupSocketEvents(newSocket);
+    
+    setSocket(newSocket);
+    socketRef.current = newSocket;
+    
+    // Fetch initial data
+    fetchConversations();
+    fetchChatPartners();
+    
+    return () => {
+      if (newSocket) {
+        newSocket.disconnect();
+      }
+    };
+  }, [user?.id]);
+  
+  // Socket event handling remains the same
+  const setupSocketEvents = (socket: Socket) => {
+    socket.on('new_message', (data: { message: Message }) => {
+      const { message } = data;
+      
+      // Remove from empty conversations set if we receive a message
+      if (checkedEmptyConversations.current.has(message.conversationId)) {
+        checkedEmptyConversations.current.delete(message.conversationId);
+      }
+      
       setMessages(prev => ({
         ...prev,
         [message.conversationId]: [
@@ -102,485 +181,405 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ]
       }));
       
-      // Update last message in conversation
-      setConversations(prev => prev.map(conv => 
-        conv.id === message.conversationId 
-          ? { 
-              ...conv, 
-              lastMessage: message, 
-              unreadCount: message.senderId !== user.id 
-                ? conv.unreadCount + 1 
-                : conv.unreadCount 
-            }
-          : conv
-      ));
-    });
-    
-    socket.on("message_read", ({ conversationId, messageId, userId }) => {
-      if (userId === user.id) return; // Skip if this user read the message
-      
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: (prev[conversationId] || []).map(msg => 
-          msg.id === messageId ? { ...msg, read: true } : msg
-        )
-      }));
-    });
-    
-    socket.on("typing_start", ({ conversationId, userId, userName }) => {
-      setTypingUsers(prev => ({
-        ...prev,
-        [userId]: true
-      }));
-      
-      // Update participant typing status
-      setConversations(prev => prev.map(conv => {
-        if (conv.id !== conversationId) return conv;
-        
-        return {
-          ...conv,
-          participants: conv.participants.map(p => 
-            p.id === userId ? { ...p, isTyping: true } : p
-          )
-        };
-      }));
-    });
-    
-    socket.on("typing_end", ({ conversationId, userId }) => {
-      setTypingUsers(prev => ({
-        ...prev,
-        [userId]: false
-      }));
-      
-      // Update participant typing status
-      setConversations(prev => prev.map(conv => {
-        if (conv.id !== conversationId) return conv;
-        
-        return {
-          ...conv,
-          participants: conv.participants.map(p => 
-            p.id === userId ? { ...p, isTyping: false } : p
-          )
-        };
-      }));
-    });
-    
-    socket.on("user_online", ({ userId, isOnline }) => {
-      if (isOnline) {
-        setOnlineUsers(prev => [...prev, userId]);
-      } else {
-        setOnlineUsers(prev => prev.filter(id => id !== userId));
-      }
-      
-      // Update participant online status
-      setConversations(prev => prev.map(conv => ({
-        ...conv,
-        participants: conv.participants.map(p => 
-          p.id === userId ? { ...p, isOnline } : p
-        )
-      })));
-    });
-    
-    // Fetch initial conversations
-    fetchConversations();
-    
-    return () => {
-      socket.off("new_message");
-      socket.off("message_read");
-      socket.off("typing_start");
-      socket.off("typing_end");
-      socket.off("user_online");
-    };
-  }, [user, token]);
-  
-  // Fetch conversations (replace with your API call)
-  const fetchConversations = async () => {
-    setLoadingConversations(true);
-    try {
-      // Mock data - replace with API call later
-      setTimeout(() => {
-        const mockConversations: Conversation[] = [
-          {
-            id: 'conv1',
-            participants: [
-              {
-                id: 'rec1',
-                name: 'Sarah Johnson',
-                role: 'HR Manager',
-                company: 'TechCorp Inc',
-                avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-                isOnline: true,
-                isTyping: false,
-                lastSeen: new Date().toISOString()
-              }
-            ],
-            lastMessage: {
-              id: 'msg1',
-              conversationId: 'conv1',
-              senderId: 'rec1',
-              senderName: 'Sarah Johnson',
-              senderRole: 'hr',
-              senderCompany: 'TechCorp Inc',
-              subject: 'Interview Invitation',
-              content: 'Hi! We\'d like to invite you for an interview for the Frontend Developer position.',
-              timestamp: new Date(Date.now() - 3600000).toISOString(),
-              read: false,
-              starred: false,
-              messageType: 'interview',
-              priority: 'high'
-            },
-            unreadCount: 1,
-            jobId: 'job1',
-            jobTitle: 'Senior Frontend Developer',
-            company: 'TechCorp Inc',
-            archived: false
-          },
-          {
-            id: 'conv2',
-            participants: [
-              {
-                id: 'rec2',
-                name: 'Michael Chen',
-                role: 'Technical Recruiter',
-                company: 'StartupXYZ',
-                avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-                isOnline: false,
-                isTyping: false,
-                lastSeen: new Date(Date.now() - 86400000).toISOString()
-              }
-            ],
-            lastMessage: {
-              id: 'msg2',
-              conversationId: 'conv2',
-              senderId: 'rec2',
-              senderName: 'Michael Chen',
-              senderRole: 'recruiter',
-              senderCompany: 'StartupXYZ',
-              subject: 'Application Status Update',
-              content: 'Your application for React Developer position is now under review.',
-              timestamp: new Date(Date.now() - 172800000).toISOString(),
-              read: true,
-              starred: true,
-              messageType: 'application_update',
-              priority: 'medium'
-            },
-            unreadCount: 0,
-            jobId: 'job2',
-            jobTitle: 'React Developer',
-            company: 'StartupXYZ',
-            archived: false
-          },
-          {
-            id: 'conv3',
-            participants: [
-              {
-                id: 'rec3',
-                name: 'Emily Davis',
-                role: 'Hiring Manager',
-                company: 'Enterprise Solutions',
-                avatar: 'https://randomuser.me/api/portraits/women/22.jpg',
-                isOnline: true,
-                isTyping: false,
-                lastSeen: new Date().toISOString()
-              }
-            ],
-            lastMessage: {
-              id: 'msg3',
-              conversationId: 'conv3',
-              senderId: 'rec3',
-              senderName: 'Emily Davis',
-              senderRole: 'hiring_manager',
-              senderCompany: 'Enterprise Solutions',
-              subject: 'Job Offer',
-              content: 'We\'re pleased to offer you the position of Senior Software Engineer!',
-              timestamp: new Date(Date.now() - 259200000).toISOString(),
-              read: true,
-              starred: false,
-              messageType: 'offer',
-              priority: 'high'
-            },
-            unreadCount: 0,
-            jobId: 'job3',
-            jobTitle: 'Senior Software Engineer',
-            company: 'Enterprise Solutions',
-            archived: false
+      setConversations(prev => 
+        prev.map(conv => {
+          if (conv.id === message.conversationId) {
+            const unreadCount = message.senderId !== user?.id 
+              ? conv.unreadCount + 1 
+              : conv.unreadCount;
+              
+            return {
+              ...conv,
+              lastMessage: message,
+              unreadCount
+            };
           }
-        ];
+          return conv;
+        })
+      );
+    });
+    
+    socket.on('user_online', (data: { userId: string }) => {
+      setOnlineUsers(prev => new Set([...prev, data.userId]));
+      
+      setConversations(prev => 
+        prev.map(conv => ({
+          ...conv,
+          participants: conv.participants.map(p => 
+            p.id === data.userId ? { ...p, isOnline: true } : p
+          )
+        }))
+      );
+    });
+    
+    socket.on('user_offline', (data: { userId: string }) => {
+      setOnlineUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(data.userId);
+        return newSet;
+      });
+      
+      setConversations(prev => 
+        prev.map(conv => ({
+          ...conv,
+          participants: conv.participants.map(p => 
+            p.id === data.userId ? { ...p, isOnline: false, lastSeen: new Date().toISOString() } : p
+          )
+        }))
+      );
+    });
+    
+    socket.on('typing_started', (data: { userId: string; conversationId: string }) => {
+      setConversations(prev => 
+        prev.map(conv => {
+          if (conv.id === data.conversationId) {
+            return {
+              ...conv,
+              participants: conv.participants.map(p => 
+                p.id === data.userId ? { ...p, isTyping: true } : p
+              )
+            };
+          }
+          return conv;
+        })
+      );
+    });
+    
+    socket.on('typing_stopped', (data: { userId: string; conversationId: string }) => {
+      setConversations(prev => 
+        prev.map(conv => {
+          if (conv.id === data.conversationId) {
+            return {
+              ...conv,
+              participants: conv.participants.map(p => 
+                p.id === data.userId ? { ...p, isTyping: false } : p
+              )
+            };
+          }
+          return conv;
+        })
+      );
+    });
+    
+    socket.on('message_read', (data: { messageId: string, conversationId: string, readBy: string }) => {
+      const { messageId, conversationId, readBy } = data;
+      
+      // Update the message's read status
+      setMessages(prev => {
+        const conversationMessages = prev[conversationId];
+        if (!conversationMessages) return prev;
         
-        setConversations(mockConversations);
-        setLoadingConversations(false);
-      }, 1000);
+        return {
+          ...prev,
+          [conversationId]: conversationMessages.map(msg => 
+            msg.id === messageId ? { ...msg, read: true } : msg
+          )
+        };
+      });
+    });
+  };
+  
+  const fetchConversations = async () => {
+    try {
+      setLoadingConversations(true);
+      // Use cache-busting header to ensure fresh data
+      const response = await api.get('/messages/conversations', {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+      
+      setConversations(response.data.data.conversations || []);
     } catch (error) {
       console.error('Error fetching conversations:', error);
+      setConversations([]);
+    } finally {
       setLoadingConversations(false);
     }
   };
   
-  // Fetch messages for a conversation
-  const fetchMessages = useCallback(async (conversationId: string) => {
-    setLoadingMessages(prev => ({ ...prev, [conversationId]: true }));
+  const fetchChatPartners = async () => {
     try {
-      // Mock data - replace with API call later
-      setTimeout(() => {
-        const mockMessages: Record<string, Message[]> = {
-          'conv1': [
-            {
-              id: 'msg1-1',
-              conversationId: 'conv1',
-              senderId: 'rec1',
-              senderName: 'Sarah Johnson',
-              senderRole: 'hr',
-              senderCompany: 'TechCorp Inc',
-              senderAvatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-              subject: 'Interview Invitation',
-              content: 'Hi! We\'d like to invite you for an interview for the Frontend Developer position. Are you available this Thursday at 2 PM?',
-              timestamp: new Date(Date.now() - 3600000).toISOString(),
-              read: false,
-              starred: false,
-              messageType: 'interview',
-              priority: 'high',
-            }
-          ],
-          'conv2': [
-            {
-              id: 'msg2-1',
-              conversationId: 'conv2',
-              senderId: 'rec2',
-              senderName: 'Michael Chen',
-              senderRole: 'recruiter',
-              senderCompany: 'StartupXYZ',
-              senderAvatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-              subject: 'Application Received',
-              content: 'Thank you for your application to the React Developer position at StartupXYZ.',
-              timestamp: new Date(Date.now() - 259200000).toISOString(),
-              read: true,
-              starred: false,
-              messageType: 'application_update',
-              priority: 'medium',
-            },
-            {
-              id: 'msg2-2',
-              conversationId: 'conv2',
-              senderId: 'rec2',
-              senderName: 'Michael Chen',
-              senderRole: 'recruiter',
-              senderCompany: 'StartupXYZ',
-              senderAvatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-              subject: 'Application Status Update',
-              content: 'Your application for the React Developer position is now under review. We\'ll get back to you soon.',
-              timestamp: new Date(Date.now() - 172800000).toISOString(),
-              read: true,
-              starred: true,
-              messageType: 'application_update',
-              priority: 'medium',
-            },
-            {
-              id: 'msg2-3',
-              conversationId: 'conv2',
-              senderId: user?.id || 'current-user',
-              senderName: user?.name || 'You',
-              senderRole: 'recruiter',
-              senderCompany: 'JobFinder',
-              subject: 'Re: Application Status Update',
-              content: 'Thank you for the update. I\'m looking forward to hearing back from you.',
-              timestamp: new Date(Date.now() - 86400000).toISOString(),
-              read: true,
-              starred: false,
-              messageType: 'general',
-              priority: 'medium',
-            }
-          ],
-          'conv3': [
-            {
-              id: 'msg3-1',
-              conversationId: 'conv3',
-              senderId: 'rec3',
-              senderName: 'Emily Davis',
-              senderRole: 'hiring_manager',
-              senderCompany: 'Enterprise Solutions',
-              senderAvatar: 'https://randomuser.me/api/portraits/women/22.jpg',
-              subject: 'Job Offer',
-              content: 'We\'re pleased to offer you the position of Senior Software Engineer! The salary is $135,000 per year with benefits including health insurance, 401k matching, and flexible work hours.',
-              timestamp: new Date(Date.now() - 259200000).toISOString(),
-              read: true,
-              starred: false,
-              messageType: 'offer',
-              priority: 'high',
-              attachments: [
-                {
-                  id: 'att1',
-                  name: 'Offer_Letter.pdf',
-                  size: '1.2 MB',
-                  type: 'application/pdf',
-                  url: '#'
-                }
-              ]
-            }
-          ]
-        };
-        
-        setMessages(prev => ({
-          ...prev,
-          [conversationId]: mockMessages[conversationId] || []
-        }));
-        
-        setLoadingMessages(prev => ({ ...prev, [conversationId]: false }));
-        
-        // Mark conversation as read
-        setConversations(prev => prev.map(conv => 
-          conv.id === conversationId 
-            ? { ...conv, unreadCount: 0 }
-            : conv
-        ));
-      }, 500);
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      setLoadingMessages(prev => ({ ...prev, [conversationId]: false }));
-    }
-  }, []);
-  
-  // Send a new message
-  const sendMessage = async (conversationId: string, content: string) => {
-    if (!content.trim() || !conversationId) return;
-    
-    const socket = getSocket();
-    if (!socket) return;
-    
-    try {
-      // Generate a temporary id for optimistic updates
-      const tempId = `temp-${Date.now()}`;
+      // Check cache first (cache for 5 minutes)
+      const now = Date.now();
+      if (chatPartnersCache.current && (now - chatPartnersCache.current.timestamp) < 300000) {
+        setChatPartners(chatPartnersCache.current.data);
+        return;
+      }
       
-      // Create a message object
-      const message: Message = {
-        id: tempId,
-        conversationId,
-        senderId: user?.id || 'current-user',
-        senderName: user?.name || 'You',
-        senderRole: 'recruiter', // Default
-        senderCompany: 'JobFinder',
-        subject: 'Reply',
-        content,
-        timestamp: new Date().toISOString(),
-        read: true,
-        starred: false,
-        messageType: 'general',
-        priority: 'medium'
-      };
-      
-      // Optimistic update
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: [
-          ...(prev[conversationId] || []),
-          message
-        ]
-      }));
-      
-      // Update conversation's last message
-      setConversations(prev => prev.map(conv =>
-        conv.id === conversationId
-          ? { ...conv, lastMessage: message }
-          : conv
-      ));
-      
-      // Send via socket
-      socket.emit("send_message", { message, conversationId });
-      
-      // Handle response - normally would replace temp ID with real ID
-      socket.once("message_sent", (response: { tempId: string, realMessage: Message }) => {
-        if (response.tempId === tempId) {
-          // Replace temp message with real one
-          setMessages(prev => ({
-            ...prev,
-            [conversationId]: prev[conversationId].map(msg => 
-              msg.id === tempId ? response.realMessage : msg
-            )
-          }));
+      setLoadingChatPartners(true);
+      const response = await api.get('/messages/chat-partners', {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         }
       });
+      
+      const partnersData = response.data.data.chatPartners || [];
+      
+      // Update cache
+      chatPartnersCache.current = {
+        data: partnersData,
+        timestamp: now
+      };
+      
+      setChatPartners(partnersData);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error fetching chat partners:', error);
+      setChatPartners([]);
+    } finally {
+      setLoadingChatPartners(false);
     }
   };
   
-  // Mark a message as read
+  const fetchMessages = async (conversationId: string) => {
+    // Don't fetch if we've already checked this conversation and found it empty
+    if (checkedEmptyConversations.current.has(conversationId)) {
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: []
+      }));
+      setLoadingMessages(prev => ({ ...prev, [conversationId]: false }));
+      return;
+    }
+    
+    // Prevent multiple simultaneous requests for the same conversation
+    if (fetchingMessages.current.has(conversationId)) {
+      return;
+    }
+    
+    try {
+      fetchingMessages.current.add(conversationId);
+      setLoadingMessages(prev => ({ ...prev, [conversationId]: true }));
+      
+      const response = await api.get(`/messages/${conversationId}`, {
+        // No cache headers to reduce redundant requests
+        validateStatus: function (status) {
+          return status < 500; // Only reject if server error
+        }
+      });
+      
+      if (response.status === 200) {
+        const messagesList = response.data.data.messages || [];
+        
+        // If the conversation has no messages, mark it as checked
+        if (messagesList.length === 0) {
+          checkedEmptyConversations.current.add(conversationId);
+        }
+        
+        setMessages(prev => ({
+          ...prev,
+          [conversationId]: messagesList
+        }));
+      }
+    } catch (error) {
+      console.error(`Error fetching messages for conversation ${conversationId}:`, error);
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: []
+      }));
+    } finally {
+      fetchingMessages.current.delete(conversationId);
+      setLoadingMessages(prev => ({ ...prev, [conversationId]: false }));
+    }
+  };
+  
+  const selectConversation = useCallback((conversation: Conversation) => {
+    // Only fetch messages if they don't exist yet
+    if (!messages[conversation.id]) {
+      fetchMessages(conversation.id);
+    }
+    
+    // Do NOT update conversation unread count here, let the backend handle it
+    // when messages are marked as read
+  }, [messages]);
+  
+  const createConversation = async (partnerId: string, jobId?: string, initialMessage?: string): Promise<string> => {
+    try {
+      const response = await api.post('/messages', {
+        participantId: partnerId,
+        jobId,
+        initialMessage: initialMessage ? {
+          content: initialMessage,
+          messageType: 'general',
+          priority: 'medium'
+        } : undefined
+      });
+      
+      const conversationId = response.data.data.conversationId;
+      
+      // Remove from empty conversations if we had it there
+      if (checkedEmptyConversations.current.has(conversationId)) {
+        checkedEmptyConversations.current.delete(conversationId);
+      }
+      
+      // Refresh conversations after creating new one
+      await fetchConversations();
+      
+      return conversationId;
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+      throw error;
+    }
+  };
+  
+  const sendMessage = async (conversationId: string, content: string, messageType: string = 'general') => {
+    try {
+      // Remove from empty conversations if we had it there
+      if (checkedEmptyConversations.current.has(conversationId)) {
+        checkedEmptyConversations.current.delete(conversationId);
+      }
+      
+      const response = await api.post(`/messages/${conversationId}`, {
+        content,
+        messageType,
+        priority: 'medium'
+      });
+      
+      const sentMessage = response.data.data.message;
+      
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: [...(prev[conversationId] || []), sentMessage]
+      }));
+      
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, lastMessage: sentMessage } : conv
+        )
+      );
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error sending message:', error);
+      return Promise.reject(error);
+    }
+  };
+  
   const markAsRead = (conversationId: string, messageId: string) => {
-    const socket = getSocket();
-    if (!socket) return;
-    
-    socket.emit("mark_read", { conversationId, messageId });
-    
-    // Optimistic update
+    // Update UI immediately
     setMessages(prev => ({
       ...prev,
       [conversationId]: (prev[conversationId] || []).map(msg => 
         msg.id === messageId ? { ...msg, read: true } : msg
       )
     }));
+    
+    // Send API request to update on server
+    api.post(`/messages/${conversationId}/read`, { messageId }).catch(error => {
+      console.error('Error marking message as read:', error);
+    });
+    
+    // Also emit socket event for real-time updates
+    if (socket && socket.connected) {
+      socket.emit('message_read', { conversationId, messageId });
+    }
   };
   
-  // Typing indicators
   const startTyping = (conversationId: string) => {
-    const socket = getSocket();
-    if (!socket) return;
-    
-    socket.emit("typing_start", { conversationId });
+    if (!socket || !socket.connected) return;
+    socket.emit('typing_start', { conversationId });
   };
   
   const stopTyping = (conversationId: string) => {
-    const socket = getSocket();
-    if (!socket) return;
-    
-    socket.emit("typing_end", { conversationId });
+    if (!socket || !socket.connected) return;
+    socket.emit('typing_stop', { conversationId });
   };
   
-  // Fix 2: Define the selectConversation function directly in the component
-  const selectConversation = useCallback((conversation: Conversation) => {
-    if (!messages[conversation.id]) {
-      fetchMessages(conversation.id);
+  const toggleStar = (messageId: string) => {
+    let targetConversationId = '';
+    
+    for (const [conversationId, messageList] of Object.entries(messages)) {
+      const message = messageList.find(msg => msg.id === messageId);
+      if (message) {
+        targetConversationId = conversationId;
+        break;
+      }
     }
-  }, [messages, fetchMessages]);
+    
+    if (!targetConversationId) return;
+    
+    setMessages(prev => ({
+      ...prev,
+      [targetConversationId]: prev[targetConversationId].map(msg => {
+        if (msg.id === messageId) {
+          const newStarred = !msg.starred;
+          
+          api.post(`/messages/${targetConversationId}/${messageId}/star`, { 
+            starred: newStarred 
+          }).catch(error => {
+            console.error('Error toggling star:', error);
+          });
+          
+          return { ...msg, starred: newStarred };
+        }
+        return msg;
+      })
+    }));
+  };
   
-  // Fix 3: Include selectConversation in the value object from the start
-  const value = useMemo(() => ({
-    conversations,
-    messages,
-    sendMessage,
-    markAsRead,
-    startTyping,
-    stopTyping,
-    onlineUsers,
-    typingUsers,
-    isConnected,
-    loadingConversations,
-    loadingMessages,
-    selectConversation
-  }), [
-    conversations,
-    messages,
-    sendMessage,
-    markAsRead,
-    startTyping,
-    stopTyping,
-    onlineUsers,
-    typingUsers,
-    isConnected,
-    loadingConversations,
-    loadingMessages,
-    selectConversation
-  ]);
-
+  const archiveConversation = async (conversationId: string) => {
+    try {
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, archived: true } : conv
+        )
+      );
+      
+      await api.post(`/messages/${conversationId}/archive`);
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error archiving conversation:', error);
+      
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, archived: false } : conv
+        )
+      );
+      
+      return Promise.reject(error);
+    }
+  };
+  
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      await api.delete(`/messages/${conversationId}`);
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      fetchConversations();
+      return Promise.reject(error);
+    }
+  };
+  
   return (
-    <ChatContext.Provider value={value}>
+    <ChatContext.Provider
+      value={{
+        conversations,
+        messages,
+        chatPartners,
+        sendMessage,
+        selectConversation,
+        createConversation,
+        markAsRead,
+        startTyping,
+        stopTyping,
+        toggleStar,
+        archiveConversation,
+        deleteConversation,
+        onlineUsers,
+        isConnected,
+        loadingConversations,
+        loadingMessages,
+        loadingChatPartners,
+        fetchChatPartners
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );
 }
-
-export const useChat = () => {
-  const context = useContext(ChatContext);
-  if (context === undefined) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
-  return context;
-};
