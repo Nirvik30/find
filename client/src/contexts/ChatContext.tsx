@@ -53,6 +53,7 @@ interface Conversation {
   company?: string;
   archived: boolean;
   status?: string;
+  lastActivity?: number; // Add this field to track last message timestamp for sorting
 }
 
 interface ChatPartner {
@@ -116,6 +117,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const checkedEmptyConversations = useRef<Set<string>>(new Set());
   const lastFetchTimestamps = useRef<{ [key: string]: number }>({});
   
+  // Add a ref to track recently sent messages
+  const sentMessagesRef = useRef<Set<string>>(new Set());
+  
   // Initialize socket connection
   useEffect(() => {
     if (!user?.id) return;
@@ -163,10 +167,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id]);
   
-  // Socket event handling remains the same
+  // Socket event handling - fix the double message issue
   const setupSocketEvents = (socket: Socket) => {
     socket.on('new_message', (data: { message: Message }) => {
       const { message } = data;
+      
+      // Check if we just sent this message ourselves (by ID or content+timestamp)
+      const messageKey = `${message.senderId}-${message.content}-${message.timestamp}`;
+      if (sentMessagesRef.current.has(messageKey)) {
+        // We already have this message locally, just update its ID if needed
+        sentMessagesRef.current.delete(messageKey); // Remove from tracking
+        return;
+      }
       
       // Remove from empty conversations set if we receive a message
       if (checkedEmptyConversations.current.has(message.conversationId)) {
@@ -181,8 +193,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ]
       }));
       
-      setConversations(prev => 
-        prev.map(conv => {
+      // Update conversations and re-sort them to move the most recent to top
+      setConversations(prev => {
+        // First update the conversation with the new message
+        const updatedConversations = prev.map(conv => {
           if (conv.id === message.conversationId) {
             const unreadCount = message.senderId !== user?.id 
               ? conv.unreadCount + 1 
@@ -191,12 +205,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return {
               ...conv,
               lastMessage: message,
-              unreadCount
+              unreadCount,
+              // Add a lastActivity field to help with sorting
+              lastActivity: new Date(message.timestamp).getTime()
             };
           }
           return conv;
-        })
-      );
+        });
+        
+        // Then sort conversations by lastActivity (most recent first)
+        return updatedConversations.sort((a, b) => {
+          const aTime = a.lastActivity || (a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0);
+          const bTime = b.lastActivity || (b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0);
+          return bTime - aTime; // Descending order (newest first)
+        });
+      });
     });
     
     socket.on('user_online', (data: { userId: string }) => {
@@ -426,6 +449,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
+  // Update the sendMessage function
   const sendMessage = async (conversationId: string, content: string, messageType: string = 'general') => {
     try {
       // Remove from empty conversations if we had it there
@@ -441,16 +465,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       
       const sentMessage = response.data.data.message;
       
+      // Create a key for tracking this message to prevent duplication
+      const messageKey = `${sentMessage.senderId}-${sentMessage.content}-${sentMessage.timestamp}`;
+      sentMessagesRef.current.add(messageKey);
+      
+      // After 5 seconds, remove the key (cleanup)
+      setTimeout(() => {
+        sentMessagesRef.current.delete(messageKey);
+      }, 5000);
+      
       setMessages(prev => ({
         ...prev,
         [conversationId]: [...(prev[conversationId] || []), sentMessage]
       }));
       
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === conversationId ? { ...conv, lastMessage: sentMessage } : conv
-        )
-      );
+      // Update conversations with sorting to move this conversation to the top
+      setConversations(prev => {
+        // Update the specific conversation first
+        const updatedConversations = prev.map(conv => 
+          conv.id === conversationId ? {
+            ...conv,
+            lastMessage: sentMessage,
+            lastActivity: new Date(sentMessage.timestamp).getTime()
+          } : conv
+        );
+        
+        // Then sort by most recent activity
+        return updatedConversations.sort((a, b) => {
+          const aTime = a.lastActivity || (a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0);
+          const bTime = b.lastActivity || (b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0);
+          return bTime - aTime; // Descending order (newest first)
+        });
+      });
       
       return Promise.resolve();
     } catch (error) {
