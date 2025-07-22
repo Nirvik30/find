@@ -4,11 +4,10 @@ import io, { Socket } from 'socket.io-client';
 import api from '@/lib/api';
 
 interface Attachment {
-  id: string;
   name: string;
+  url: string;
   size: string;
   type: string;
-  url: string;
 }
 
 interface Message {
@@ -16,8 +15,7 @@ interface Message {
   conversationId: string;
   senderId: string;
   senderName: string;
-  senderRole: 'recruiter' | 'hr' | 'hiring_manager' | 'system' | 'applicant';
-  senderCompany?: string;
+  senderRole: string;
   senderAvatar?: string;
   subject: string;
   content: string;
@@ -25,8 +23,6 @@ interface Message {
   read: boolean;
   starred: boolean;
   attachments?: Attachment[];
-  jobId?: string;
-  jobTitle?: string;
   messageType: 'interview' | 'application_update' | 'general' | 'offer' | 'rejection' | 'system';
   priority: 'high' | 'medium' | 'low';
 }
@@ -53,7 +49,7 @@ interface Conversation {
   company?: string;
   archived: boolean;
   status?: string;
-  lastActivity?: number; // Add this field to track last message timestamp for sorting
+  lastActivity?: number;
 }
 
 interface ChatPartner {
@@ -65,7 +61,9 @@ interface ChatPartner {
   company?: string;
   jobTitle?: string;
   jobId?: string;
+  applicationId?: string;
   applicationStatus?: string;
+  appliedDate?: string;
 }
 
 interface ChatContextType {
@@ -114,10 +112,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<Socket | null>(null);
   const chatPartnersCache = useRef<{ data: ChatPartner[]; timestamp: number } | null>(null);
   const fetchingMessages = useRef<Set<string>>(new Set());
-  const checkedEmptyConversations = useRef<Set<string>>(new Set());
-  const lastFetchTimestamps = useRef<{ [key: string]: number }>({});
-  
-  // Add a ref to track recently sent messages
   const sentMessagesRef = useRef<Set<string>>(new Set());
   
   // Initialize socket connection
@@ -156,9 +150,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setSocket(newSocket);
     socketRef.current = newSocket;
     
-    // Fetch initial data
-    fetchConversations();
-    fetchChatPartners();
+    // Initialize data with proper error handling
+    const initializeData = async () => {
+      try {
+        // Always fetch conversations first
+        await fetchConversations();
+        
+        // Then fetch chat partners if we don't have cached data
+        if (!chatPartnersCache.current || Date.now() - chatPartnersCache.current.timestamp > 300000) {
+          await fetchChatPartners();
+        } else {
+          setChatPartners(chatPartnersCache.current.data);
+        }
+      } catch (error) {
+        console.error('Error initializing chat data:', error);
+      }
+    };
+    
+    initializeData();
     
     return () => {
       if (newSocket) {
@@ -167,22 +176,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id]);
   
-  // Socket event handling - fix the double message issue
+  // Socket event handling
   const setupSocketEvents = (socket: Socket) => {
     socket.on('new_message', (data: { message: Message }) => {
       const { message } = data;
       
-      // Check if we just sent this message ourselves (by ID or content+timestamp)
+      // Check if we just sent this message ourselves
       const messageKey = `${message.senderId}-${message.content}-${message.timestamp}`;
       if (sentMessagesRef.current.has(messageKey)) {
-        // We already have this message locally, just update its ID if needed
-        sentMessagesRef.current.delete(messageKey); // Remove from tracking
+        sentMessagesRef.current.delete(messageKey);
         return;
-      }
-      
-      // Remove from empty conversations set if we receive a message
-      if (checkedEmptyConversations.current.has(message.conversationId)) {
-        checkedEmptyConversations.current.delete(message.conversationId);
       }
       
       setMessages(prev => ({
@@ -193,9 +196,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ]
       }));
       
-      // Update conversations and re-sort them to move the most recent to top
+      // Update conversations and sort them
       setConversations(prev => {
-        // First update the conversation with the new message
         const updatedConversations = prev.map(conv => {
           if (conv.id === message.conversationId) {
             const unreadCount = message.senderId !== user?.id 
@@ -206,18 +208,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               ...conv,
               lastMessage: message,
               unreadCount,
-              // Add a lastActivity field to help with sorting
               lastActivity: new Date(message.timestamp).getTime()
             };
           }
           return conv;
         });
         
-        // Then sort conversations by lastActivity (most recent first)
+        // Sort by most recent activity
         return updatedConversations.sort((a, b) => {
           const aTime = a.lastActivity || (a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0);
           const bTime = b.lastActivity || (b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0);
-          return bTime - aTime; // Descending order (newest first)
+          return bTime - aTime;
         });
       });
     });
@@ -285,9 +286,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
     
     socket.on('message_read', (data: { messageId: string, conversationId: string, readBy: string }) => {
-      const { messageId, conversationId, readBy } = data;
+      const { messageId, conversationId } = data;
       
-      // Update the message's read status
       setMessages(prev => {
         const conversationMessages = prev[conversationId];
         if (!conversationMessages) return prev;
@@ -305,16 +305,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const fetchConversations = async () => {
     try {
       setLoadingConversations(true);
-      // Use cache-busting header to ensure fresh data
-      const response = await api.get('/messages/conversations', {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
+      console.log('Fetching conversations...');
       
-      setConversations(response.data.data.conversations || []);
+      const response = await api.get('/messages/conversations');
+      
+      if (response.data && response.data.data && response.data.data.conversations) {
+        const conversations = response.data.data.conversations;
+        console.log(`Loaded ${conversations.length} conversations`);
+        setConversations(conversations);
+      } else {
+        console.log('No conversations data in response');
+        setConversations([]);
+      }
     } catch (error) {
       console.error('Error fetching conversations:', error);
       setConversations([]);
@@ -325,23 +327,25 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   
   const fetchChatPartners = async () => {
     try {
-      // Check cache first (cache for 5 minutes)
+      // Check cache first (increase cache time to 5 minutes)
       const now = Date.now();
       if (chatPartnersCache.current && (now - chatPartnersCache.current.timestamp) < 300000) {
         setChatPartners(chatPartnersCache.current.data);
         return;
       }
       
+      // Prevent multiple simultaneous requests
+      if (loadingChatPartners) {
+        return;
+      }
+      
       setLoadingChatPartners(true);
-      const response = await api.get('/messages/chat-partners', {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
+      console.log('Fetching chat partners...');
+      
+      const response = await api.get('/messages/chat-partners');
       
       const partnersData = response.data.data.chatPartners || [];
+      console.log(`Loaded ${partnersData.length} chat partners`);
       
       // Update cache
       chatPartnersCache.current = {
@@ -359,45 +363,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
   
   const fetchMessages = async (conversationId: string) => {
-    // Don't fetch if we've already checked this conversation and found it empty
-    if (checkedEmptyConversations.current.has(conversationId)) {
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: []
-      }));
-      setLoadingMessages(prev => ({ ...prev, [conversationId]: false }));
-      return;
-    }
-    
-    // Prevent multiple simultaneous requests for the same conversation
-    if (fetchingMessages.current.has(conversationId)) {
-      return;
-    }
+    if (fetchingMessages.current.has(conversationId)) return;
     
     try {
       fetchingMessages.current.add(conversationId);
       setLoadingMessages(prev => ({ ...prev, [conversationId]: true }));
       
-      const response = await api.get(`/messages/${conversationId}`, {
-        // No cache headers to reduce redundant requests
-        validateStatus: function (status) {
-          return status < 500; // Only reject if server error
-        }
-      });
+      const response = await api.get(`/messages/${conversationId}`);
+      const messagesList = response.data.data.messages || [];
       
-      if (response.status === 200) {
-        const messagesList = response.data.data.messages || [];
-        
-        // If the conversation has no messages, mark it as checked
-        if (messagesList.length === 0) {
-          checkedEmptyConversations.current.add(conversationId);
-        }
-        
-        setMessages(prev => ({
-          ...prev,
-          [conversationId]: messagesList
-        }));
-      }
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: messagesList
+      }));
     } catch (error) {
       console.error(`Error fetching messages for conversation ${conversationId}:`, error);
       setMessages(prev => ({
@@ -410,15 +388,80 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  const selectConversation = useCallback((conversation: Conversation) => {
-    // Only fetch messages if they don't exist yet
-    if (!messages[conversation.id]) {
-      fetchMessages(conversation.id);
-    }
+  const selectConversation = useCallback(async (conversation: Conversation) => {
+    console.log(`Selecting conversation ${conversation.id}, current messages:`, messages[conversation.id]?.length || 0);
     
-    // Do NOT update conversation unread count here, let the backend handle it
-    // when messages are marked as read
-  }, [messages]);
+    // Always fetch messages, don't rely on cache for this specific issue
+    if (!fetchingMessages.current.has(conversation.id)) {
+      try {
+        fetchingMessages.current.add(conversation.id);
+        setLoadingMessages(prev => ({ ...prev, [conversation.id]: true }));
+        
+        const response = await api.get(`/messages/${conversation.id}`);
+        const messagesList = response.data.data.messages || [];
+        
+        console.log(`Fetched ${messagesList.length} messages for conversation ${conversation.id}`);
+        
+        setMessages(prev => ({
+          ...prev,
+          [conversation.id]: messagesList
+        }));
+        
+      } catch (error) {
+        console.error(`Error fetching messages for conversation ${conversation.id}:`, error);
+      } finally {
+        fetchingMessages.current.delete(conversation.id);
+        setLoadingMessages(prev => ({ ...prev, [conversation.id]: false }));
+      }
+    }
+  }, []);
+  
+  const sendMessage = async (conversationId: string, content: string, messageType: string = 'general') => {
+    try {
+      const response = await api.post(`/messages/${conversationId}`, {
+        content,
+        messageType,
+        priority: 'medium'
+      });
+      
+      const sentMessage = response.data.data.message;
+      
+      // Track message to prevent duplication
+      const messageKey = `${sentMessage.senderId}-${sentMessage.content}-${sentMessage.timestamp}`;
+      sentMessagesRef.current.add(messageKey);
+      
+      setTimeout(() => {
+        sentMessagesRef.current.delete(messageKey);
+      }, 5000);
+      
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: [...(prev[conversationId] || []), sentMessage]
+      }));
+      
+      // Update conversations with sorting
+      setConversations(prev => {
+        const updatedConversations = prev.map(conv => 
+          conv.id === conversationId ? {
+            ...conv,
+            lastMessage: sentMessage,
+            lastActivity: new Date(sentMessage.timestamp).getTime()
+          } : conv
+        );
+        
+        return updatedConversations.sort((a, b) => {
+          const aTime = a.lastActivity || (a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0);
+          const bTime = b.lastActivity || (b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0);
+          return bTime - aTime;
+        });
+      });
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error sending message:', error);
+      return Promise.reject(error);
+    }
+  };
   
   const createConversation = async (partnerId: string, jobId?: string, initialMessage?: string): Promise<string> => {
     try {
@@ -434,12 +477,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       
       const conversationId = response.data.data.conversationId;
       
-      // Remove from empty conversations if we had it there
-      if (checkedEmptyConversations.current.has(conversationId)) {
-        checkedEmptyConversations.current.delete(conversationId);
-      }
-      
-      // Refresh conversations after creating new one
+      // Refresh conversations
       await fetchConversations();
       
       return conversationId;
@@ -449,64 +487,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  // Update the sendMessage function
-  const sendMessage = async (conversationId: string, content: string, messageType: string = 'general') => {
-    try {
-      // Remove from empty conversations if we had it there
-      if (checkedEmptyConversations.current.has(conversationId)) {
-        checkedEmptyConversations.current.delete(conversationId);
-      }
-      
-      const response = await api.post(`/messages/${conversationId}`, {
-        content,
-        messageType,
-        priority: 'medium'
-      });
-      
-      const sentMessage = response.data.data.message;
-      
-      // Create a key for tracking this message to prevent duplication
-      const messageKey = `${sentMessage.senderId}-${sentMessage.content}-${sentMessage.timestamp}`;
-      sentMessagesRef.current.add(messageKey);
-      
-      // After 5 seconds, remove the key (cleanup)
-      setTimeout(() => {
-        sentMessagesRef.current.delete(messageKey);
-      }, 5000);
-      
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: [...(prev[conversationId] || []), sentMessage]
-      }));
-      
-      // Update conversations with sorting to move this conversation to the top
-      setConversations(prev => {
-        // Update the specific conversation first
-        const updatedConversations = prev.map(conv => 
-          conv.id === conversationId ? {
-            ...conv,
-            lastMessage: sentMessage,
-            lastActivity: new Date(sentMessage.timestamp).getTime()
-          } : conv
-        );
-        
-        // Then sort by most recent activity
-        return updatedConversations.sort((a, b) => {
-          const aTime = a.lastActivity || (a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0);
-          const bTime = b.lastActivity || (b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0);
-          return bTime - aTime; // Descending order (newest first)
-        });
-      });
-      
-      return Promise.resolve();
-    } catch (error) {
-      console.error('Error sending message:', error);
-      return Promise.reject(error);
-    }
-  };
-  
   const markAsRead = (conversationId: string, messageId: string) => {
-    // Update UI immediately
     setMessages(prev => ({
       ...prev,
       [conversationId]: (prev[conversationId] || []).map(msg => 
@@ -514,16 +495,53 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       )
     }));
     
-    // Send API request to update on server
     api.post(`/messages/${conversationId}/read`, { messageId }).catch(error => {
       console.error('Error marking message as read:', error);
     });
     
-    // Also emit socket event for real-time updates
     if (socket && socket.connected) {
       socket.emit('message_read', { conversationId, messageId });
     }
   };
+  
+  // Add this new function to batch mark messages as read
+  const markAllAsRead = useCallback(async (conversationId: string, messageIds: string[]) => {
+    if (!messageIds.length) return;
+    
+    try {
+      // Call API only once with all message IDs
+      await api.post(`/messages/${conversationId}/read`, { messageIds });
+      
+      // Update local message state
+      setMessages(prev => {
+        const conversationMessages = prev[conversationId] || [];
+        if (!conversationMessages.length) return prev;
+        
+        const updatedMessages = conversationMessages.map(msg => {
+          if (messageIds.includes(msg.id) && !msg.read) {
+            return { ...msg, read: true };
+          }
+          return msg;
+        });
+        
+        return {
+          ...prev,
+          [conversationId]: updatedMessages
+        };
+      });
+      
+      // Update conversation unread count
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId 
+            ? { ...conv, unreadCount: 0 }
+            : conv
+        )
+      );
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  }, []);
   
   const startTyping = (conversationId: string) => {
     if (!socket || !socket.connected) return;
@@ -569,62 +587,63 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   
   const archiveConversation = async (conversationId: string) => {
     try {
+      await api.post(`/messages/${conversationId}/archive`);
+      
       setConversations(prev => 
         prev.map(conv => 
           conv.id === conversationId ? { ...conv, archived: true } : conv
         )
       );
-      
-      await api.post(`/messages/${conversationId}/archive`);
-      return Promise.resolve();
     } catch (error) {
       console.error('Error archiving conversation:', error);
-      
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === conversationId ? { ...conv, archived: false } : conv
-        )
-      );
-      
-      return Promise.reject(error);
     }
   };
   
   const deleteConversation = async (conversationId: string) => {
     try {
-      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
       await api.delete(`/messages/${conversationId}`);
-      return Promise.resolve();
+      
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      setMessages(prev => {
+        const newMessages = { ...prev };
+        delete newMessages[conversationId];
+        return newMessages;
+      });
     } catch (error) {
       console.error('Error deleting conversation:', error);
-      fetchConversations();
-      return Promise.reject(error);
     }
   };
   
+  // Add to ChatContext
+  const refreshConversations = async () => {
+    console.log('Refreshing conversations...');
+    await fetchConversations();
+  };
+  
+  // Add to the context value
   return (
-    <ChatContext.Provider
-      value={{
-        conversations,
-        messages,
-        chatPartners,
-        sendMessage,
-        selectConversation,
-        createConversation,
-        markAsRead,
-        startTyping,
-        stopTyping,
-        toggleStar,
-        archiveConversation,
-        deleteConversation,
-        onlineUsers,
-        isConnected,
-        loadingConversations,
-        loadingMessages,
-        loadingChatPartners,
-        fetchChatPartners
-      }}
-    >
+    <ChatContext.Provider value={{
+      conversations,
+      messages,
+      chatPartners,
+      sendMessage,
+      selectConversation,
+      createConversation,
+      markAsRead,
+      startTyping,
+      stopTyping,
+      toggleStar,
+      archiveConversation,
+      deleteConversation,
+      onlineUsers,
+      isConnected,
+      loadingConversations,
+      loadingMessages,
+      loadingChatPartners,
+      fetchChatPartners,
+      refreshConversations, // Add this
+      markAllAsRead, // Add this new function
+    }}>
       {children}
     </ChatContext.Provider>
   );

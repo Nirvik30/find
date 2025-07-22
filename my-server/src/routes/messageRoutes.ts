@@ -1,32 +1,31 @@
 import express from 'express';
-import { 
+import {
+  getChatPartners,
   getConversations,
   getMessages,
   sendMessage,
+  createConversation,
   markAsRead,
   toggleStar,
   archiveConversation,
-  deleteConversation,
-  createConversation,
-  getChatPartners // Add this import
+  deleteConversation
 } from '../controllers/messageController';
-import { protect } from '../middleware/authMiddleware';
+import { protect } from '../middleware/authMiddleware'; // Change this line
 
 const router = express.Router();
 
 // Apply authentication middleware to all routes
-router.use(protect);
+router.use(protect); // Change this line
 
-// Get all conversations
+// Chat partners route
+router.get('/chat-partners', getChatPartners);
+
+// Conversation routes
 router.get('/conversations', getConversations);
+router.post('/', createConversation);
 
-// Get chat partners
-router.get('/chat-partners', getChatPartners); // Add this route
-
-// Get messages for a conversation
+// Message routes
 router.get('/:conversationId', getMessages);
-
-// Send a message
 router.post('/:conversationId', sendMessage);
 
 // Mark a message as read
@@ -40,8 +39,5 @@ router.post('/:conversationId/archive', archiveConversation);
 
 // Delete a conversation
 router.delete('/:conversationId', deleteConversation);
-
-// Create a new conversation
-router.post('/', createConversation);
 
 export default router;

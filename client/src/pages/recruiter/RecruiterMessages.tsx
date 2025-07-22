@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,9 @@ import {
   Filter,
   Briefcase,
   Phone,
-  Video
+  Video,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -53,13 +55,16 @@ export default function RecruiterMessages() {
     selectConversation: selectChatConversation,
     createConversation,
     markAsRead,
+    markAllAsRead, // Add this
     startTyping,
     stopTyping,
     onlineUsers,
     isConnected,
     loadingConversations,
     loadingMessages,
-    fetchChatPartners
+    loadingChatPartners,
+    fetchChatPartners,
+    refreshConversations
   } = useChat();
 
   const [selectedConversation, setSelectedConversation] = useState<any>(null);
@@ -67,40 +72,96 @@ export default function RecruiterMessages() {
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [messageTypeFilter, setMessageTypeFilter] = useState('');
+  const [messageTypeFilter, setMessageTypeFilter] = useState('general');
   const [showFilters, setShowFilters] = useState(false);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<string>('');
-  
+  const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [processedMessageIds, setProcessedMessageIds] = useState<Set<string>>(new Set());
+
   const messageEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const conversationSelectedRef = useRef<string | null>(null);
+  const messageProcessedRef = useRef<Set<string>>(new Set());
 
-  // Fetch chat partners on component mount
+  // Initialize chat data
   useEffect(() => {
-    fetchChatPartners();
-  }, [fetchChatPartners]);
+    const initializeChatData = async () => {
+      try {
+        setInitializationError(null);
+        
+        // Wait a bit for the ChatContext to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Only fetch chat partners if we don't have any and aren't already loading
+        if (chatPartners.length === 0 && !loadingChatPartners) {
+          console.log('Fetching chat partners for recruiter...');
+          await fetchChatPartners();
+        }
+      } catch (error) {
+        console.error('Failed to initialize chat data:', error);
+        setInitializationError('Failed to load chat data. Please refresh the page.');
+      }
+    };
+    
+    // Only initialize if we have a user
+    if (user?.id) {
+      initializeChatData();
+    }
+  }, [user?.id]); // Only depend on user ID
 
-  // Handle conversation selection
+  // Controlled conversation selection
   useEffect(() => {
     if (selectedConversation && selectChatConversation) {
-      selectChatConversation(selectedConversation);
+      // Only proceed if this is a new conversation selection
+      if (conversationSelectedRef.current !== selectedConversation.id) {
+        console.log('Selecting conversation in RecruiterMessages:', selectedConversation.id);
+        conversationSelectedRef.current = selectedConversation.id;
+        
+        selectChatConversation(selectedConversation);
+        scrollToBottom();
+      }
     }
-  }, [selectedConversation, selectChatConversation]);
+  }, [selectedConversation?.id, selectChatConversation]);
 
-  // Add separate useEffect for message marking
+  // Handle message reading once messages are loaded (SEPARATE EFFECT)
   useEffect(() => {
-    if (selectedConversation && messages[selectedConversation.id]) {
-      const conversationMessages = messages[selectedConversation.id];
+    if (selectedConversation?.id && messages[selectedConversation.id]?.length > 0) {
+      // Find unread messages from other users that haven't been processed yet
+      const conversationMessages = messages[selectedConversation.id] || [];
+      const unreadMessages = conversationMessages.filter(message => 
+        !message.read && 
+        message.senderId !== user?.id &&
+        !processedMessageIds.has(message.id)
+      );
       
-      conversationMessages.forEach(message => {
-        if (!message.read && message.senderId !== user?.id) {
-          markAsRead(selectedConversation.id, message.id);
-        }
-      });
-      
-      scrollToBottom();
+      // Only proceed if there are new unread messages
+      if (unreadMessages.length > 0) {
+        console.log(`Found ${unreadMessages.length} unread messages to mark as read`);
+        
+        // Add to processed set immediately to prevent duplicate processing
+        const messageIds = unreadMessages.map(msg => msg.id);
+        setProcessedMessageIds(prev => {
+          const newSet = new Set(prev);
+          messageIds.forEach(id => newSet.add(id));
+          return newSet;
+        });
+        
+        // Batch mark all unread messages at once
+        markAllAsRead(selectedConversation.id, messageIds);
+      }
     }
-  }, [selectedConversation?.id, messages, user?.id, markAsRead]);
+  }, [selectedConversation?.id, messages[selectedConversation?.id || '']?.length]);
+
+  // Clear processed message IDs when changing conversations
+  useEffect(() => {
+    return () => {
+      // Only clear message IDs for this conversation if we change conversations
+      if (selectedConversation?.id !== conversationSelectedRef.current) {
+        setProcessedMessageIds(new Set());
+      }
+    };
+  }, [selectedConversation?.id]);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -130,6 +191,22 @@ export default function RecruiterMessages() {
     };
   }, [newMessage, selectedConversation, startTyping, stopTyping]);
 
+  // Handle URL parameters for direct conversation access
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const candidateId = urlParams.get('candidateId');
+    
+    if (candidateId && conversations.length > 0 && !selectedConversation) {
+      const conversation = conversations.find(conv => 
+        conv.participants.some(p => p.id === candidateId)
+      );
+      
+      if (conversation) {
+        setSelectedConversation(conversation);
+      }
+    }
+  }, [conversations, selectedConversation]);
+
   const scrollToBottom = () => {
     setTimeout(() => {
       messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -146,6 +223,7 @@ export default function RecruiterMessages() {
       scrollToBottom();
     } catch (error) {
       console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
     } finally {
       setSendingMessage(false);
     }
@@ -164,7 +242,6 @@ export default function RecruiterMessages() {
         `Hi ${applicant.name}! Thank you for your application to the ${applicant.jobTitle} position. I'd like to discuss your qualifications further.`
       );
       
-      // Find and select the new conversation
       const newConversation = conversations.find(c => c.id === conversationId);
       if (newConversation) {
         setSelectedConversation(newConversation);
@@ -175,6 +252,19 @@ export default function RecruiterMessages() {
     } catch (error) {
       console.error('Error starting new chat:', error);
       alert('Failed to start conversation. Please try again.');
+    }
+  };
+
+  const handleRefreshData = async () => {
+    try {
+      setInitializationError(null);
+      await Promise.all([
+        refreshConversations(),
+        fetchChatPartners()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setInitializationError('Failed to refresh data. Please try again.');
     }
   };
 
@@ -244,7 +334,30 @@ export default function RecruiterMessages() {
 
   const totalUnread = conversations.reduce((sum, conv) => sum + conv.unreadCount, 0);
 
-  if (loadingConversations) {
+  // Show initialization error
+  if (initializationError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-foreground mb-2">Failed to Load Messages</h2>
+          <p className="text-muted-foreground mb-4">{initializationError}</p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={handleRefreshData}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Try Again
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/recruiter/dashboard">Go Back</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state
+  if (loadingConversations && conversations.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -281,6 +394,18 @@ export default function RecruiterMessages() {
               </div>
             </div>
             <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={handleRefreshData}
+                disabled={loadingConversations || loadingChatPartners}
+              >
+                {(loadingConversations || loadingChatPartners) ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Refresh
+              </Button>
               <ThemeToggle />
               <Button
                 variant="outline"
@@ -294,7 +419,7 @@ export default function RecruiterMessages() {
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="h-4 w-4 mr-2" />
-                      New Chat
+                      New Chat ({chatPartners.length} applicants)
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
@@ -304,11 +429,11 @@ export default function RecruiterMessages() {
                     <div className="space-y-4">
                       <Select value={selectedApplicant} onValueChange={setSelectedApplicant}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select an applicant to message" />
+                          <SelectValue placeholder={`Select from ${chatPartners.length} applicants`} />
                         </SelectTrigger>
                         <SelectContent>
                           {chatPartners.map(applicant => (
-                            <SelectItem key={applicant.id} value={applicant.id}>
+                            <SelectItem key={`${applicant.id}-${applicant.jobId}`} value={applicant.id}>
                               <div className="flex items-center gap-2">
                                 <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
                                   {applicant.avatar ? (
@@ -325,7 +450,7 @@ export default function RecruiterMessages() {
                                   <span className="font-medium">{applicant.name}</span>
                                   {applicant.jobTitle && (
                                     <span className="text-sm text-muted-foreground ml-2">
-                                      - {applicant.jobTitle}
+                                      - {applicant.jobTitle} ({applicant.applicationStatus})
                                     </span>
                                   )}
                                 </div>
@@ -358,52 +483,56 @@ export default function RecruiterMessages() {
 
           {/* Filters */}
           {showFilters && (
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg border border-border">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Application Status</label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Statuses</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="reviewing">Reviewing</SelectItem>
-                    <SelectItem value="interview">Interview</SelectItem>
-                    <SelectItem value="offer">Offer</SelectItem>
-                    <SelectItem value="accepted">Accepted</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Message Type</label>
-                <Select value={messageTypeFilter} onValueChange={setMessageTypeFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Types</SelectItem>
-                    <SelectItem value="interview">Interview</SelectItem>
-                    <SelectItem value="application_update">Application Update</SelectItem>
-                    <SelectItem value="offer">Job Offer</SelectItem>
-                    <SelectItem value="rejection">Rejection</SelectItem>
-                    <SelectItem value="general">General</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="md:col-span-2 flex items-end">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setStatusFilter('');
-                    setMessageTypeFilter('');
-                    setSearchTerm('');
-                  }}
-                  className="w-full"
-                >
-                  Clear Filters
-                </Button>
+            <div className="bg-muted/50 border-b border-border">
+              <div className="container mx-auto px-6 py-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Application Status</label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Statuses</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="reviewing">Reviewing</SelectItem>
+                        <SelectItem value="interview">Interview</SelectItem>
+                        <SelectItem value="offer">Offer</SelectItem>
+                        <SelectItem value="accepted">Accepted</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">Message Type</label>
+                    <Select value={messageTypeFilter} onValueChange={setMessageTypeFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Types</SelectItem>
+                        <SelectItem value="interview">Interview</SelectItem>
+                        <SelectItem value="application_update">Application Update</SelectItem>
+                        <SelectItem value="offer">Job Offer</SelectItem>
+                        <SelectItem value="rejection">Rejection</SelectItem>
+                        <SelectItem value="general">General</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="md:col-span-2 flex items-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setStatusFilter('');
+                        setMessageTypeFilter('');
+                        setSearchTerm('');
+                      }}
+                      className="w-full"
+                    >
+                      Clear Filters
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -426,7 +555,7 @@ export default function RecruiterMessages() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MessageCircle className="h-5 w-5" />
-                  Applicants
+                  Applicants ({conversations.length})
                 </CardTitle>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -498,17 +627,6 @@ export default function RecruiterMessages() {
                             </div>
                           )}
                           
-                          {conversation.status && (
-                            <div className="mb-2">
-                              <Badge 
-                                variant="outline"
-                                className={`text-xs ${getStatusColor(conversation.status)}`}
-                              >
-                                {conversation.status.charAt(0).toUpperCase() + conversation.status.slice(1)}
-                              </Badge>
-                            </div>
-                          )}
-                          
                           {conversation.participants.some(p => p.isTyping) ? (
                             <p className="text-sm text-primary italic">
                               Typing...
@@ -554,12 +672,17 @@ export default function RecruiterMessages() {
                       </p>
                       {chatPartners.length > 0 && conversations.length === 0 && (
                         <Button 
-                          className="mt-4"
                           onClick={() => setShowNewChatDialog(true)}
                         >
                           <Plus className="h-4 w-4 mr-2" />
                           Start Your First Chat
                         </Button>
+                      )}
+                      {loadingChatPartners && (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span className="text-sm text-muted-foreground">Loading applicants...</span>
+                        </div>
                       )}
                     </div>
                   )}
@@ -659,13 +782,12 @@ export default function RecruiterMessages() {
                               {message.content}
                             </p>
                             
-                            {/* Improved read receipts display */}
                             {message.senderId === user?.id && (
                               <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
                                 {message.read ? (
                                   <>
                                     <CheckCheck className="h-3 w-3" />
-                                    <span>Read</span>
+                                    <span>Seen</span>
                                   </>
                                 ) : (
                                   <>

@@ -3,21 +3,20 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IMessage extends Document {
   conversationId: mongoose.Types.ObjectId;
   senderId: mongoose.Types.ObjectId;
-  senderName: string;
-  senderRole: string;
-  subject: string;
+  senderName?: string;
+  senderRole?: string;
   content: string;
-  timestamp: Date;
-  read: { [key: string]: boolean };
+  subject?: string;
+  read: Record<string, boolean>; // Define as object map of userId -> boolean
   starred: boolean;
-  attachments?: {
+  attachments?: Array<{
     name: string;
     url: string;
-    size: string;
-    type: string;
-  }[];
+    size: number;
+  }>;
   messageType: string;
   priority: string;
+  timestamp: Date;
 }
 
 const messageSchema = new Schema<IMessage>({
@@ -31,31 +30,16 @@ const messageSchema = new Schema<IMessage>({
     ref: 'User',
     required: true
   },
-  senderName: {
-    type: String,
-    required: true
-  },
-  senderRole: {
-    type: String,
-    required: true,
-    enum: ['applicant', 'recruiter', 'admin', 'system']
-  },
-  subject: {
-    type: String,
-    default: ''
-  },
+  senderName: String,
+  senderRole: String,
   content: {
     type: String,
     required: true
   },
-  timestamp: {
-    type: Date,
-    default: Date.now
-  },
+  subject: String,
   read: {
-    type: Map,
-    of: Boolean,
-    default: () => new Map()
+    type: Schema.Types.Mixed, // Use Mixed type for dynamic properties
+    default: {}
   },
   starred: {
     type: Boolean,
@@ -64,23 +48,25 @@ const messageSchema = new Schema<IMessage>({
   attachments: [{
     name: String,
     url: String,
-    size: String,
-    type: String
+    size: Number
   }],
   messageType: {
     type: String,
-    enum: ['interview', 'application_update', 'general', 'offer', 'rejection', 'system'],
+    enum: ['general', 'interview', 'offer', 'rejection', 'application_update', 'system'],
     default: 'general'
   },
   priority: {
     type: String,
-    enum: ['high', 'medium', 'low'],
+    enum: ['low', 'medium', 'high'],
     default: 'medium'
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now
   }
-}, {
-  timestamps: true
 });
 
-const Message = mongoose.model<IMessage>('Message', messageSchema);
+messageSchema.index({ conversationId: 1 });
+messageSchema.index({ senderId: 1 });
 
-export default Message;
+export default mongoose.model<IMessage>('Message', messageSchema);

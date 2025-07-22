@@ -5,7 +5,7 @@ import Message from '../models/messageModel';
 import User from '../models/userModel';
 import Job from '../models/jobModel';
 import Application from '../models/applicationModel';
-import { emitNewMessage } from '../server'; // Import the emitNewMessage function
+import { emitNewMessage } from '../server';
 
 interface AuthRequest extends Request {
   user?: { 
@@ -17,7 +17,6 @@ interface AuthRequest extends Request {
 
 // Cache to prevent repeated queries
 const chatPartnersCache = new Map<string, { data: any[], timestamp: number }>();
-const messageCache = new Map<string, { data: any[], timestamp: number, etag: string }>();
 
 // Get all possible chat partners for a user (ONLY REAL CONNECTED USERS)
 export const getChatPartners = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -51,7 +50,7 @@ export const getChatPartners = async (req: AuthRequest, res: Response): Promise<
     let chatPartners: any[] = [];
 
     if (userRole === 'applicant') {
-      // For applicants, get ONLY recruiters from jobs they've applied to
+      // For applicants, get ALL recruiters from jobs they've applied to
       const applications = await Application.find({ applicantId: userId })
         .populate({
           path: 'jobId',
@@ -59,22 +58,29 @@ export const getChatPartners = async (req: AuthRequest, res: Response): Promise<
             path: 'recruiterId',
             select: 'name email avatar companyName'
           }
-        });
+        })
+        .sort({ createdAt: -1 }); // Most recent applications first
 
       const recruiterMap = new Map();
+      
       applications.forEach(app => {
         const job = app.jobId as any;
-        if (job?.recruiterId && !recruiterMap.has(job.recruiterId._id.toString())) {
-          recruiterMap.set(job.recruiterId._id.toString(), {
-            id: job.recruiterId._id.toString(),
+        if (job?.recruiterId) {
+          const recruiterId = job.recruiterId._id.toString();
+          
+          // Always add or update recruiter info for each application
+          recruiterMap.set(`${recruiterId}-${job._id}`, {
+            id: recruiterId,
             name: job.recruiterId.name,
             role: 'recruiter',
             email: job.recruiterId.email,
             avatar: job.recruiterId.avatar,
-            company: job.recruiterId.companyName,
+            company: job.recruiterId.companyName || job.company,
             jobTitle: job.title,
             jobId: job._id.toString(),
-            applicationStatus: app.status
+            applicationId: app._id.toString(),
+            applicationStatus: app.status,
+            appliedDate: (app as any).createdAt // Type assertion fix
           });
         }
       });
@@ -82,29 +88,37 @@ export const getChatPartners = async (req: AuthRequest, res: Response): Promise<
       chatPartners = Array.from(recruiterMap.values());
       
     } else if (userRole === 'recruiter') {
-      // For recruiters, get ONLY applicants who applied to their jobs
-      const jobs = await Job.find({ recruiterId: userId });
+      // For recruiters, get ALL applicants who applied to their jobs
+      const jobs = await Job.find({ recruiterId: userId }).select('_id title company');
       const jobIds = jobs.map(job => job._id);
 
       const applications = await Application.find({ jobId: { $in: jobIds } })
         .populate('applicantId', 'name email avatar')
-        .populate('jobId', 'title');
+        .populate('jobId', 'title company')
+        .sort({ createdAt: -1 }); // Most recent applications first
 
       const applicantMap = new Map();
+      
       applications.forEach(app => {
         const applicant = app.applicantId as any;
         const job = app.jobId as any;
         
-        if (applicant && !applicantMap.has(applicant._id.toString())) {
-          applicantMap.set(applicant._id.toString(), {
-            id: applicant._id.toString(),
+        if (applicant) {
+          const applicantId = applicant._id.toString();
+          
+          // Always add or update applicant info for each application
+          applicantMap.set(`${applicantId}-${job._id}`, {
+            id: applicantId,
             name: applicant.name,
             role: 'applicant',
             email: applicant.email,
             avatar: applicant.avatar,
             jobTitle: job?.title,
             jobId: job?._id?.toString(),
-            applicationStatus: app.status
+            company: job?.company,
+            applicationId: app._id.toString(),
+            applicationStatus: app.status,
+            appliedDate: (app as any).createdAt // Type assertion fix
           });
         }
       });
@@ -118,10 +132,7 @@ export const getChatPartners = async (req: AuthRequest, res: Response): Promise<
       timestamp: now
     });
 
-    // Only log once when cache is updated
-    if (!cached) {
-      console.log(`Loaded ${chatPartners.length} chat partners for ${userRole}`);
-    }
+    console.log(`Loaded ${chatPartners.length} chat partners for ${userRole}`);
 
     res.status(200).json({
       status: 'success',
@@ -138,7 +149,7 @@ export const getChatPartners = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
-// Get conversations for the current user with real data
+// Get conversations for the current user with proper sorting
 export const getConversations = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
@@ -151,74 +162,91 @@ export const getConversations = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
+    console.log(`Fetching conversations for user: ${userId}`);
+
     const conversations = await Conversation.find({
       'participants.userId': userId,
       archived: { $ne: true }
     })
     .populate('participants.userId', 'name email role avatar companyName')
     .populate('jobId', 'title company')
-    .sort({ updatedAt: -1 });
+    .sort({ updatedAt: -1 }); // Most recent conversations first
+
+    console.log(`Found ${conversations.length} conversations`);
 
     const formattedConversations = await Promise.all(
       conversations.map(async (conv) => {
-        const otherParticipant = conv.participants.find(
-          p => p.userId._id.toString() !== userId
-        );
+        try {
+          const otherParticipant = conv.participants.find(
+            p => (p.userId as any)._id.toString() !== userId
+          );
 
-        if (!otherParticipant) {
+          if (!otherParticipant || !otherParticipant.userId) {
+            console.log(`Skipping conversation ${conv._id} - no valid participant`);
+            return null;
+          }
+
+          const otherUser = otherParticipant.userId as any;
+          
+          // Get the most recent message with better error handling
+          const lastMessage = await Message.findOne({ conversationId: conv._id })
+            .populate('senderId', 'name role')
+            .sort({ timestamp: -1 })
+            .lean(); // Use lean for better performance
+
+          // Calculate unread count for this user
+          const unreadCount = await Message.countDocuments({
+            conversationId: conv._id,
+            senderId: { $ne: userId },
+            [`read.${userId}`]: { $ne: true }
+          });
+
+          console.log(`Conversation ${conv._id}: ${conv.participants.length} participants, unread: ${unreadCount}`);
+
+          return {
+            id: conv._id.toString(),
+            participants: [{
+              id: otherUser._id.toString(),
+              name: otherUser.name || 'Unknown User',
+              role: otherUser.role || 'user',
+              avatar: otherUser.avatar,
+              company: otherUser.companyName,
+              isOnline: false, // Will be updated by socket
+              isTyping: false
+            }],
+            lastMessage: lastMessage ? {
+              id: lastMessage._id.toString(),
+              senderId: (lastMessage.senderId as any)._id ? (lastMessage.senderId as any)._id.toString() : lastMessage.senderId.toString(),
+              senderName: (lastMessage.senderId as any).name || (lastMessage as any).senderName || 'Unknown',
+              senderRole: (lastMessage.senderId as any).role || (lastMessage as any).senderRole || 'user',
+              subject: lastMessage.subject || '',
+              content: lastMessage.content || '',
+              timestamp: lastMessage.timestamp.toISOString(),
+              read: (lastMessage as any).read?.[userId] || false,
+              starred: lastMessage.starred || false,
+              messageType: lastMessage.messageType || 'general',
+              priority: lastMessage.priority || 'medium'
+            } : null,
+            unreadCount,
+            jobId: conv.jobId?._id?.toString(),
+            jobTitle: (conv.jobId as any)?.title,
+            company: (conv.jobId as any)?.company || otherUser.companyName,
+            archived: conv.archived || false,
+            status: 'active', // Remove the problematic status field access
+            lastActivity: conv.updatedAt.getTime() // Add for proper sorting
+          };
+        } catch (error) {
+          console.error(`Error processing conversation ${conv._id}:`, error);
           return null;
         }
-
-        const otherUser = otherParticipant.userId as any;
-        
-        const lastMessage = await Message.findOne({
-          conversationId: conv._id
-        })
-        .sort({ timestamp: -1 })
-        .populate('senderId', 'name role');
-
-        const unreadCount = await Message.countDocuments({
-          conversationId: conv._id,
-          senderId: { $ne: userId },
-          [`read.${userId}`]: { $ne: true }
-        });
-
-        return {
-          id: conv._id.toString(),
-          participants: [{
-            id: otherUser._id.toString(),
-            name: otherUser.name,
-            role: otherUser.role,
-            email: otherUser.email,
-            avatar: otherUser.avatar,
-            company: otherUser.role === 'recruiter' ? otherUser.companyName : undefined,
-            isOnline: false,
-            isTyping: false
-          }],
-          lastMessage: lastMessage ? {
-            id: lastMessage._id.toString(),
-            conversationId: conv._id.toString(),
-            senderId: lastMessage.senderId._id.toString(),
-            senderName: (lastMessage.senderId as any).name,
-            senderRole: (lastMessage.senderId as any).role,
-            subject: lastMessage.subject || '',
-            content: lastMessage.content,
-            timestamp: lastMessage.timestamp.toISOString(),
-            read: lastMessage.read?.[userId] || false,
-            starred: lastMessage.starred || false,
-            messageType: lastMessage.messageType || 'general',
-            priority: lastMessage.priority || 'medium'
-          } : null,
-          unreadCount,
-          jobId: conv.jobId?._id?.toString(),
-          jobTitle: (conv.jobId as any)?.title,
-          company: (conv.jobId as any)?.company || otherUser.companyName,
-          archived: conv.archived || false
-        };
       })
     );
 
-    const validConversations = formattedConversations.filter(conv => conv !== null);
+    const validConversations = formattedConversations
+      .filter(conv => conv !== null)
+      .sort((a, b) => (b!.lastActivity || 0) - (a!.lastActivity || 0)); // Sort by most recent
+
+    console.log(`Returning ${validConversations.length} valid conversations`);
 
     res.status(200).json({
       status: 'success',
@@ -236,7 +264,7 @@ export const getConversations = async (req: AuthRequest, res: Response): Promise
   }
 };
 
-// Get messages for a conversation - FIX CONTINUOUS FETCHING
+// Get messages for a conversation
 export const getMessages = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { conversationId } = req.params;
@@ -267,25 +295,23 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
     // Get messages and populate sender info
     const messages = await Message.find({ conversationId })
       .populate('senderId', 'name role avatar')
-      .sort({ timestamp: 1 });
-    
+      .sort({ timestamp: 1 }); // Oldest first for chat display
+
     const formattedMessages = messages.map(msg => {
       const sender = msg.senderId as any;
       
-      // Safely check if message is read by this user
+      // Check read status safely - ensure read exists as an object
       let isReadByUser = false;
-      if (msg.read && msg.read instanceof Map) {
-        isReadByUser = msg.read.get(userId) === true;
-      } else if (typeof msg.read === 'object' && msg.read !== null) {
-        isReadByUser = msg.read[userId] === true;
+      if (msg.read && typeof msg.read === 'object') {
+        isReadByUser = !!msg.read[userId];
       }
       
       return {
         id: msg._id.toString(),
         conversationId: msg.conversationId.toString(),
-        senderId: sender._id.toString(),
-        senderName: msg.senderName || sender.name,
-        senderRole: msg.senderRole || sender.role,
+        senderId: sender._id ? sender._id.toString() : (msg.senderId as any).toString(),
+        senderName: msg.senderName || (sender.name || 'Unknown'),
+        senderRole: msg.senderRole || (sender.role || 'user'),
         senderAvatar: sender.avatar,
         subject: msg.subject || '',
         content: msg.content,
@@ -298,29 +324,32 @@ export const getMessages = async (req: AuthRequest, res: Response): Promise<void
       };
     });
     
-    // Only mark as read if there are actually unread messages
-    // Use updateMany instead of looping through messages
-    await Message.updateMany(
-      {
-        conversationId,
-        senderId: { $ne: userId }
-      },
-      {
-        $set: {
-          [`read.${userId}`]: true
-        }
-      }
-    );
+    // Mark messages as read - FIXED with proper initialization
+    const unreadMessages = await Message.find({
+      conversationId,
+      senderId: { $ne: userId },
+      [`read.${userId}`]: { $ne: true }
+    });
     
-    // Update conversation unread count
-    await Conversation.updateOne(
-      { _id: conversationId },
-      {
-        $set: {
-          [`unreadCount.${userId}`]: 0
+    if (unreadMessages.length > 0) {
+      // Update each document individually to avoid schema validation errors
+      for (const msg of unreadMessages) {
+        // Initialize read as empty object if it doesn't exist
+        if (!msg.read || typeof msg.read !== 'object') {
+          msg.read = {};
         }
+        
+        // Set this user's read status
+        msg.read[userId] = true;
+        await msg.save();
       }
-    );
+      
+      // Update conversation unread count
+      await Conversation.updateOne(
+        { _id: conversationId },
+        { $set: { [`unreadCount.${userId}`]: 0 } }
+      );
+    }
     
     res.status(200).json({
       status: 'success',
@@ -352,7 +381,6 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
     
-    // Check if conversation exists and user has access
     const conversation = await Conversation.findOne({
       _id: conversationId,
       'participants.userId': userId
@@ -378,7 +406,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<void
     }
     
     // Initialize read status
-    const readStatus = {};
+    const readStatus: { [key: string]: boolean } = {};
     readStatus[userId] = true;
     
     // Create the message
@@ -395,7 +423,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<void
       starred: false
     });
     
-    // Update conversation unread counts
+    // Update conversation
     const otherParticipants = conversation.participants.filter(
       p => p.userId.toString() !== userId
     );
@@ -452,7 +480,7 @@ export const sendMessage = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
-// Create conversation with real users
+// Create conversation function with better validation
 export const createConversation = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { participantId, jobId, initialMessage } = req.body;
@@ -466,11 +494,12 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    // Check if conversation already exists
     const existingConversation = await Conversation.findOne({
       $and: [
         { 'participants.userId': userId },
         { 'participants.userId': participantId },
-        ...(jobId ? [{ jobId }] : [])
+        { jobId: jobId || { $exists: true } }
       ]
     });
 
@@ -479,16 +508,15 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
         status: 'success',
         data: {
           conversationId: existingConversation._id.toString(),
-          exists: true
+          existing: true
         }
       });
       return;
     }
 
-    const [currentUser, otherUser] = await Promise.all([
-      User.findById(userId).select('name role'),
-      User.findById(participantId).select('name role')
-    ]);
+    // Get user details
+    const currentUser = await User.findById(userId);
+    const otherUser = await User.findById(participantId);
 
     if (!currentUser || !otherUser) {
       res.status(404).json({
@@ -498,20 +526,14 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    // Verify connection through job application
     let hasConnection = false;
-    
-    if (currentUser.role === 'applicant' && otherUser.role === 'recruiter') {
-      const job = await Job.findOne({ _id: jobId, recruiterId: participantId });
-      const application = await Application.findOne({ 
-        applicantId: userId, 
-        jobId: jobId || job?._id 
-      });
-      hasConnection = !!application;
-    } else if (currentUser.role === 'recruiter' && otherUser.role === 'applicant') {
-      const job = await Job.findOne({ _id: jobId, recruiterId: userId });
-      const application = await Application.findOne({ 
-        applicantId: participantId, 
-        jobId: jobId || job?._id 
+    if (jobId) {
+      const application = await Application.findOne({
+        $or: [
+          { applicantId: userId, jobId },
+          { applicantId: participantId, jobId }
+        ]
       });
       hasConnection = !!application;
     }
@@ -524,44 +546,40 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    // Create conversation
     const conversation = await Conversation.create({
       participants: [
         {
           userId: userId,
           role: currentUser.role,
           isTyping: false,
-          lastSeen: new Date()
         },
         {
           userId: participantId,
           role: otherUser.role,
           isTyping: false,
-          lastSeen: new Date()
         }
       ],
-      jobId: jobId || undefined,
-      unreadCount: {},
-      archived: false
+      jobId: jobId ? new mongoose.Types.ObjectId(jobId) : undefined,
+      archived: false,
+      unreadCount: {}
     });
 
+    // Send initial message if provided
     if (initialMessage) {
-      const sender = await User.findById(userId).select('name role');
-      
-      // Initialize readBy map correctly
-      const readByMap = new Map();
-      readByMap.set(userId, true);
-      
+      const readStatus: { [key: string]: boolean } = {};
+      readStatus[userId] = true;
+
       const message = await Message.create({
         conversationId: conversation._id,
         senderId: userId,
-        senderName: sender?.name || 'Unknown User',
-        senderRole: sender?.role || 'unknown',
-        content: initialMessage.content || initialMessage,
+        senderName: currentUser.name,
+        senderRole: currentUser.role,
+        content: typeof initialMessage === 'string' ? initialMessage : initialMessage.content,
         subject: '',
         messageType: 'general',
         priority: 'medium',
-        read: false,
-        readBy: readByMap,
+        read: readStatus,
         starred: false
       });
 
@@ -573,13 +591,30 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
           }
         }
       );
+
+      // Emit initial message
+      emitNewMessage({
+        id: message._id.toString(),
+        conversationId: conversation._id.toString(),
+        senderId: userId,
+        senderName: currentUser.name,
+        senderRole: currentUser.role,
+        senderAvatar: currentUser.avatar,
+        subject: '',
+        content: message.content,
+        timestamp: message.timestamp.toISOString(),
+        read: true,
+        starred: false,
+        messageType: 'general',
+        priority: 'medium'
+      });
     }
 
     res.status(201).json({
       status: 'success',
       data: {
         conversationId: conversation._id.toString(),
-        exists: false
+        existing: false
       }
     });
   } catch (error: any) {
@@ -591,29 +626,65 @@ export const createConversation = async (req: AuthRequest, res: Response): Promi
   }
 };
 
-// Rest of the helper functions
+// Update the markAsRead function to handle multiple messages at once
 export const markAsRead = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { conversationId } = req.params;
-    const { messageId } = req.body;
+    const { messageIds } = req.body; // Changed from messageId to messageIds array
     const userId = req.user?.id;
     
-    // Update message read status
-    await Message.updateOne(
-      { _id: messageId },
-      { $set: { [`read.${userId}`]: true } }
-    );
+    if (!userId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
     
-    // Also update conversation unread count
-    await Conversation.updateOne(
-      { _id: conversationId },
-      { $set: { [`unreadCount.${userId}`]: 0 } }
-    );
-    
-    res.status(200).json({
-      status: 'success',
-      data: { read: true }
-    });
+    // Handle array of message IDs for batch updates
+    if (Array.isArray(messageIds) && messageIds.length > 0) {
+      // Update multiple messages at once
+      await Message.updateMany(
+        { _id: { $in: messageIds } },
+        { $set: { [`read.${userId}`]: true } }
+      );
+      
+      // Also update conversation unread count
+      await Conversation.updateOne(
+        { _id: conversationId },
+        { $set: { [`unreadCount.${userId}`]: 0 } }
+      );
+      
+      res.status(200).json({
+        status: 'success',
+        data: { read: true, count: messageIds.length }
+      });
+    } else {
+      // For backward compatibility - single message ID
+      const messageId = req.body.messageId;
+      if (!messageId) {
+        res.status(400).json({
+          status: 'fail',
+          message: 'Message ID is required'
+        });
+        return;
+      }
+      
+      await Message.updateOne(
+        { _id: messageId },
+        { $set: { [`read.${userId}`]: true } }
+      );
+      
+      await Conversation.updateOne(
+        { _id: conversationId },
+        { $set: { [`unreadCount.${userId}`]: 0 } }
+      );
+      
+      res.status(200).json({
+        status: 'success',
+        data: { read: true }
+      });
+    }
   } catch (error: any) {
     console.error('Error marking message as read:', error);
     res.status(500).json({
@@ -623,6 +694,7 @@ export const markAsRead = async (req: AuthRequest, res: Response): Promise<void>
   }
 };
 
+// Toggle star status
 export const toggleStar = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { messageId } = req.params;
@@ -630,14 +702,15 @@ export const toggleStar = async (req: AuthRequest, res: Response): Promise<void>
     
     await Message.updateOne(
       { _id: messageId },
-      { $set: { starred: !!starred } }
+      { $set: { starred: Boolean(starred) } }
     );
     
     res.status(200).json({
       status: 'success',
-      data: { starred: !!starred }
+      data: { starred: Boolean(starred) }
     });
   } catch (error: any) {
+    console.error('Error toggling star:', error);
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -645,6 +718,7 @@ export const toggleStar = async (req: AuthRequest, res: Response): Promise<void>
   }
 };
 
+// Archive conversation
 export const archiveConversation = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { conversationId } = req.params;
@@ -656,9 +730,10 @@ export const archiveConversation = async (req: AuthRequest, res: Response): Prom
     
     res.status(200).json({
       status: 'success',
-      data: { archived: true }
+      data: null
     });
   } catch (error: any) {
+    console.error('Error archiving conversation:', error);
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -666,34 +741,23 @@ export const archiveConversation = async (req: AuthRequest, res: Response): Prom
   }
 };
 
+// Delete conversation
 export const deleteConversation = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { conversationId } = req.params;
-    const userId = req.user?.id;
     
-    const conversation = await Conversation.findById(conversationId);
+    // Delete all messages in the conversation
+    await Message.deleteMany({ conversationId });
     
-    if (conversation) {
-      const remainingParticipants = conversation.participants.filter(
-        p => p.userId.toString() !== userId
-      );
-      
-      if (remainingParticipants.length === 0) {
-        await Message.deleteMany({ conversationId });
-        await Conversation.deleteOne({ _id: conversationId });
-      } else {
-        await Conversation.updateOne(
-          { _id: conversationId },
-          { $set: { participants: remainingParticipants } }
-        );
-      }
-    }
+    // Delete the conversation
+    await Conversation.deleteOne({ _id: conversationId });
     
     res.status(200).json({
       status: 'success',
       data: null
     });
   } catch (error: any) {
+    console.error('Error deleting conversation:', error);
     res.status(500).json({
       status: 'error',
       message: error.message

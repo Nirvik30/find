@@ -75,6 +75,9 @@ export default function Messages() {
   const messageEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Add the same pattern to the applicant Messages.tsx component
+  const [processedMessageIds, setProcessedMessageIds] = useState<Set<string>>(new Set());
+
   // Fetch chat partners on component mount
   useEffect(() => {
     if (!loadingChatPartners && chatPartners.length === 0) {
@@ -86,18 +89,41 @@ export default function Messages() {
   useEffect(() => {
     if (selectedConversation && selectChatConversation) {
       selectChatConversation(selectedConversation);
-      
-      const conversationMessages = messages[selectedConversation.id] || [];
-      
-      conversationMessages.forEach(message => {
-        if (!message.read && message.senderId !== user?.id) {
-          markAsRead(selectedConversation.id, message.id);
-        }
-      });
-      
       scrollToBottom();
     }
-  }, [selectedConversation, messages, selectChatConversation, user?.id, markAsRead]);
+  }, [selectedConversation, selectChatConversation]);
+
+  // Separate effect for message reading
+  useEffect(() => {
+    if (selectedConversation?.id && messages[selectedConversation.id]?.length > 0) {
+      const conversationMessages = messages[selectedConversation.id] || [];
+      const unreadMessages = conversationMessages.filter(message => 
+        !message.read && 
+        message.senderId !== user?.id &&
+        !processedMessageIds.has(message.id)
+      );
+      
+      if (unreadMessages.length > 0) {
+        const messageIds = unreadMessages.map(msg => msg.id);
+        
+        setProcessedMessageIds(prev => {
+          const newSet = new Set(prev);
+          messageIds.forEach(id => newSet.add(id));
+          return newSet;
+        });
+        
+        // Use batch mark all
+        markAllAsRead(selectedConversation.id, messageIds);
+      }
+    }
+  }, [selectedConversation?.id, messages[selectedConversation?.id || '']?.length]);
+
+  // Clear processed message IDs when changing conversations
+  useEffect(() => {
+    if (!selectedConversation) {
+      setProcessedMessageIds(new Set());
+    }
+  }, [selectedConversation?.id]);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -620,7 +646,7 @@ export default function Messages() {
                                 {message.read ? (
                                   <>
                                     <CheckCheck className="h-3 w-3" />
-                                    <span>Read</span>
+                                    <span>Seen</span>
                                   </>
                                 ) : (
                                   <>
@@ -712,3 +738,90 @@ export default function Messages() {
     </div>
   );
 }
+
+// Mark message as read - completely revised to handle batch updates properly
+export const markAsRead = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { conversationId } = req.params;
+    const { messageId, messageIds } = req.body;
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      res.status(401).json({
+        status: 'fail',
+        message: 'Authentication required'
+      });
+      return;
+    }
+    
+    // Handle batch message marking
+    if (Array.isArray(messageIds) && messageIds.length > 0) {
+      const messages = await Message.find({ _id: { $in: messageIds } });
+      
+      // Update each message individually to avoid schema errors
+      for (const message of messages) {
+        if (!message.read || typeof message.read !== 'object') {
+          message.read = {};
+        }
+        message.read[userId] = true;
+        await message.save();
+      }
+      
+      // Update conversation unread count
+      await Conversation.updateOne(
+        { _id: conversationId },
+        { $set: { [`unreadCount.${userId}`]: 0 } }
+      );
+      
+      res.status(200).json({
+        status: 'success',
+        data: { read: true, count: messageIds.length }
+      });
+      return;
+    }
+    
+    // Handle single message marking (legacy support)
+    if (!messageId) {
+      res.status(400).json({
+        status: 'fail',
+        message: 'Message ID is required'
+      });
+      return;
+    }
+    
+    const message = await Message.findById(messageId);
+    if (!message) {
+      res.status(404).json({
+        status: 'fail',
+        message: 'Message not found'
+      });
+      return;
+    }
+    
+    // Initialize read as empty object if it doesn't exist
+    if (!message.read || typeof message.read !== 'object') {
+      message.read = {};
+    }
+    
+    // Set this user's read status
+    message.read[userId] = true;
+    await message.save();
+    
+    // Also update conversation unread count
+    await Conversation.updateOne(
+      { _id: conversationId },
+      { $set: { [`unreadCount.${userId}`]: 0 } }
+    );
+    
+    res.status(200).json({
+      status: 'success',
+      data: { read: true }
+    });
+  } catch (error: any) {
+    console.error('Error marking message as read:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};

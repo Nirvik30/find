@@ -13,7 +13,7 @@ export interface IApplication extends Document {
     url: string;
     size: number;
   }>;
-  notes?: string; // Legacy field for backward compatibility
+  notes?: string;
   publicNotes?: string[];
   notesHistory?: Array<{
     id: string;
@@ -25,6 +25,9 @@ export interface IApplication extends Document {
   }>;
   priority?: 'low' | 'normal' | 'high';
   matchScore?: number;
+  // Explicitly add the timestamps
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const applicationSchema = new Schema<IApplication>({
@@ -99,7 +102,7 @@ const applicationSchema = new Schema<IApplication>({
     max: 100
   }
 }, {
-  timestamps: true
+  timestamps: true // This adds createdAt and updatedAt automatically
 });
 
 // Index for faster queries
