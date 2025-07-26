@@ -389,32 +389,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
   
   const selectConversation = useCallback(async (conversation: Conversation) => {
-    console.log(`Selecting conversation ${conversation.id}, current messages:`, messages[conversation.id]?.length || 0);
+    console.log(`Selecting conversation ${conversation.id}`);
     
-    // Always fetch messages, don't rely on cache for this specific issue
-    if (!fetchingMessages.current.has(conversation.id)) {
-      try {
-        fetchingMessages.current.add(conversation.id);
-        setLoadingMessages(prev => ({ ...prev, [conversation.id]: true }));
-        
-        const response = await api.get(`/messages/${conversation.id}`);
-        const messagesList = response.data.data.messages || [];
-        
-        console.log(`Fetched ${messagesList.length} messages for conversation ${conversation.id}`);
-        
+    setLoadingMessages(prev => ({ ...prev, [conversation.id]: true }));
+    
+    try {
+      // Initialize the messages array for this conversation even if empty
+      if (!messages[conversation.id]) {
         setMessages(prev => ({
           ...prev,
-          [conversation.id]: messagesList
+          [conversation.id]: [] // Initialize with empty array
         }));
-        
-      } catch (error) {
-        console.error(`Error fetching messages for conversation ${conversation.id}:`, error);
-      } finally {
-        fetchingMessages.current.delete(conversation.id);
-        setLoadingMessages(prev => ({ ...prev, [conversation.id]: false }));
       }
+      
+      // Fetch messages
+      const response = await api.get(`/messages/${conversation.id}`);
+      const messagesList = response.data.data.messages || [];
+      
+      setMessages(prev => ({
+        ...prev,
+        [conversation.id]: messagesList
+      }));
+    } catch (error) {
+      console.error(`Error fetching messages for conversation ${conversation.id}:`, error);
+      // Still initialize with empty array on error
+      setMessages(prev => ({
+        ...prev,
+        [conversation.id]: []
+      }));
+    } finally {
+      setLoadingMessages(prev => ({ ...prev, [conversation.id]: false }));
     }
-  }, []);
+  }, [messages]);
   
   const sendMessage = async (conversationId: string, content: string, messageType: string = 'general') => {
     try {

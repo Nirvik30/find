@@ -47,15 +47,15 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 export default function RecruiterMessages() {
   const { user } = useAuth();
-  const { 
-    conversations, 
-    messages, 
+  const {
+    conversations,
+    messages,
     chatPartners,
     sendMessage,
     selectConversation: selectChatConversation,
     createConversation,
     markAsRead,
-    markAllAsRead, // Add this
+    markAllAsRead,
     startTyping,
     stopTyping,
     onlineUsers,
@@ -64,7 +64,7 @@ export default function RecruiterMessages() {
     loadingMessages,
     loadingChatPartners,
     fetchChatPartners,
-    refreshConversations
+    refreshConversations,
   } = useChat();
 
   const [selectedConversation, setSelectedConversation] = useState<any>(null);
@@ -89,10 +89,10 @@ export default function RecruiterMessages() {
     const initializeChatData = async () => {
       try {
         setInitializationError(null);
-        
+
         // Wait a bit for the ChatContext to initialize
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
         // Only fetch chat partners if we don't have any and aren't already loading
         if (chatPartners.length === 0 && !loadingChatPartners) {
           console.log('Fetching chat partners for recruiter...');
@@ -103,7 +103,7 @@ export default function RecruiterMessages() {
         setInitializationError('Failed to load chat data. Please refresh the page.');
       }
     };
-    
+
     // Only initialize if we have a user
     if (user?.id) {
       initializeChatData();
@@ -117,7 +117,7 @@ export default function RecruiterMessages() {
       if (conversationSelectedRef.current !== selectedConversation.id) {
         console.log('Selecting conversation in RecruiterMessages:', selectedConversation.id);
         conversationSelectedRef.current = selectedConversation.id;
-        
+
         selectChatConversation(selectedConversation);
         scrollToBottom();
       }
@@ -129,29 +129,30 @@ export default function RecruiterMessages() {
     if (selectedConversation?.id && messages[selectedConversation.id]?.length > 0) {
       // Find unread messages from other users that haven't been processed yet
       const conversationMessages = messages[selectedConversation.id] || [];
-      const unreadMessages = conversationMessages.filter(message => 
-        !message.read && 
-        message.senderId !== user?.id &&
-        !processedMessageIds.has(message.id)
+      const unreadMessages = conversationMessages.filter(
+        (message) =>
+          !message.read &&
+          message.senderId !== user?.id &&
+          !processedMessageIds.has(message.id)
       );
-      
+
       // Only proceed if there are new unread messages
       if (unreadMessages.length > 0) {
         console.log(`Found ${unreadMessages.length} unread messages to mark as read`);
-        
+
         // Add to processed set immediately to prevent duplicate processing
-        const messageIds = unreadMessages.map(msg => msg.id);
-        setProcessedMessageIds(prev => {
+        const messageIds = unreadMessages.map((msg) => msg.id);
+        setProcessedMessageIds((prev) => {
           const newSet = new Set(prev);
-          messageIds.forEach(id => newSet.add(id));
+          messageIds.forEach((id) => newSet.add(id));
           return newSet;
         });
-        
+
         // Batch mark all unread messages at once
         markAllAsRead(selectedConversation.id, messageIds);
       }
     }
-  }, [selectedConversation?.id, messages[selectedConversation?.id || '']?.length]);
+  }, [selectedConversation?.id, messages[selectedConversation?.id || '']?.length, markAllAsRead, processedMessageIds, user?.id]);
 
   // Clear processed message IDs when changing conversations
   useEffect(() => {
@@ -173,17 +174,17 @@ export default function RecruiterMessages() {
   // Handle typing indicator
   useEffect(() => {
     if (!selectedConversation || !newMessage) return;
-    
+
     startTyping(selectedConversation.id);
-    
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    
+
     typingTimeoutRef.current = setTimeout(() => {
       stopTyping(selectedConversation.id);
     }, 2000);
-    
+
     return () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -195,12 +196,12 @@ export default function RecruiterMessages() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const candidateId = urlParams.get('candidateId');
-    
+
     if (candidateId && conversations.length > 0 && !selectedConversation) {
-      const conversation = conversations.find(conv => 
-        conv.participants.some(p => p.id === candidateId)
+      const conversation = conversations.find((conv) =>
+        conv.participants.some((p) => p.id === candidateId)
       );
-      
+
       if (conversation) {
         setSelectedConversation(conversation);
       }
@@ -233,20 +234,20 @@ export default function RecruiterMessages() {
     if (!selectedApplicant) return;
 
     try {
-      const applicant = chatPartners.find(p => p.id === selectedApplicant);
+      const applicant = chatPartners.find((p) => p.id === selectedApplicant);
       if (!applicant) return;
 
       const conversationId = await createConversation(
-        selectedApplicant, 
-        applicant.jobId, 
+        selectedApplicant,
+        applicant.jobId,
         `Hi ${applicant.name}! Thank you for your application to the ${applicant.jobTitle} position. I'd like to discuss your qualifications further.`
       );
-      
-      const newConversation = conversations.find(c => c.id === conversationId);
+
+      const newConversation = conversations.find((c) => c.id === conversationId);
       if (newConversation) {
         setSelectedConversation(newConversation);
       }
-      
+
       setShowNewChatDialog(false);
       setSelectedApplicant('');
     } catch (error) {
@@ -258,10 +259,7 @@ export default function RecruiterMessages() {
   const handleRefreshData = async () => {
     try {
       setInitializationError(null);
-      await Promise.all([
-        refreshConversations(),
-        fetchChatPartners()
-      ]);
+      await Promise.all([refreshConversations(), fetchChatPartners()]);
     } catch (error) {
       console.error('Error refreshing data:', error);
       setInitializationError('Failed to refresh data. Please try again.');
@@ -270,7 +268,7 @@ export default function RecruiterMessages() {
 
   const getStatusColor = (status: string) => {
     if (!status) return '';
-    
+
     switch (status.toLowerCase()) {
       case 'pending':
         return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
@@ -320,15 +318,15 @@ export default function RecruiterMessages() {
     }
   };
 
-  const filteredConversations = conversations.filter(conv => {
-    const matchesSearch = 
+  const filteredConversations = conversations.filter((conv) => {
+    const matchesSearch =
       (conv.participants[0]?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (conv.jobTitle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (conv.lastMessage?.content || '').toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesStatus = !statusFilter || conv.status === statusFilter;
     const matchesMessageType = !messageTypeFilter || conv.lastMessage?.messageType === messageTypeFilter;
-    
+
     return matchesSearch && matchesStatus && matchesMessageType && !conv.archived;
   });
 
@@ -437,10 +435,10 @@ export default function RecruiterMessages() {
                               <div className="flex items-center gap-2">
                                 <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
                                   {applicant.avatar ? (
-                                    <img 
-                                      src={applicant.avatar} 
+                                    <img
+                                      src={applicant.avatar}
                                       alt={applicant.name}
-                                      className="w-6 h-6 rounded-full object-cover" 
+                                      className="w-6 h-6 rounded-full object-cover"
                                     />
                                   ) : (
                                     <User className="h-3 w-3" />
@@ -460,15 +458,15 @@ export default function RecruiterMessages() {
                         </SelectContent>
                       </Select>
                       <div className="flex gap-2">
-                        <Button 
+                        <Button
                           onClick={handleStartNewChat}
                           disabled={!selectedApplicant}
                           className="flex-1"
                         >
                           Start Conversation
                         </Button>
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           onClick={() => setShowNewChatDialog(false)}
                         >
                           Cancel
@@ -547,7 +545,7 @@ export default function RecruiterMessages() {
             <span>{isConnected ? 'Connected' : 'Reconnecting...'}</span>
           </div>
         </div>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-300px)]">
           {/* Conversations List */}
           <div className="lg:col-span-1">
@@ -583,10 +581,10 @@ export default function RecruiterMessages() {
                         <div className="relative">
                           <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
                             {conversation.participants[0]?.avatar ? (
-                              <img 
-                                src={conversation.participants[0].avatar} 
+                              <img
+                                src={conversation.participants[0].avatar}
                                 alt={conversation.participants[0].name}
-                                className="w-10 h-10 rounded-full object-cover" 
+                                className="w-10 h-10 rounded-full object-cover"
                               />
                             ) : (
                               <User className="h-5 w-5 text-muted-foreground" />
@@ -603,12 +601,14 @@ export default function RecruiterMessages() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
-                            <h4 className={`text-sm font-medium truncate ${
-                              conversation.unreadCount > 0 ? 'text-foreground' : 'text-muted-foreground'
-                            }`}>
+                            <h4
+                              className={`text-sm font-medium truncate ${
+                                conversation.unreadCount > 0 ? 'text-foreground' : 'text-muted-foreground'
+                              }`}
+                            >
                               {conversation.participants[0]?.name}
                             </h4>
                             <div className="flex items-center gap-1">
@@ -617,31 +617,29 @@ export default function RecruiterMessages() {
                               </span>
                             </div>
                           </div>
-                          
+
                           {conversation.jobTitle && (
                             <div className="flex items-center gap-1 mb-1">
                               <Briefcase className="h-3 w-3 text-primary" />
-                              <p className="text-xs text-primary truncate">
-                                {conversation.jobTitle}
-                              </p>
+                              <p className="text-xs text-primary truncate">{conversation.jobTitle}</p>
                             </div>
                           )}
-                          
-                          {conversation.participants.some(p => p.isTyping) ? (
-                            <p className="text-sm text-primary italic">
-                              Typing...
-                            </p>
+
+                          {conversation.participants.some((p) => p.isTyping) ? (
+                            <p className="text-sm text-primary italic">Typing...</p>
                           ) : (
-                            <p className={`text-sm truncate ${
-                              conversation.unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
-                            }`}>
+                            <p
+                              className={`text-sm truncate ${
+                                conversation.unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'
+                              }`}
+                            >
                               {conversation.lastMessage?.content || 'No messages yet'}
                             </p>
                           )}
-                          
+
                           <div className="flex items-center gap-2 mt-2">
                             {conversation.lastMessage && (
-                              <Badge 
+                              <Badge
                                 variant="outline"
                                 className={`text-xs ${getMessageTypeColor(conversation.lastMessage.messageType)}`}
                               >
@@ -658,7 +656,6 @@ export default function RecruiterMessages() {
                       </div>
                     </div>
                   ))}
-
                   {filteredConversations.length === 0 && (
                     <div className="p-8 text-center">
                       <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -668,12 +665,10 @@ export default function RecruiterMessages() {
                       <p className="text-muted-foreground mb-4">
                         {conversations.length === 0
                           ? "You don't have any messages yet"
-                          : "Try adjusting your search or filters"}
+                          : 'Try adjusting your search or filters'}
                       </p>
                       {chatPartners.length > 0 && conversations.length === 0 && (
-                        <Button 
-                          onClick={() => setShowNewChatDialog(true)}
-                        >
+                        <Button onClick={() => setShowNewChatDialog(true)}>
                           <Plus className="h-4 w-4 mr-2" />
                           Start Your First Chat
                         </Button>
@@ -701,10 +696,10 @@ export default function RecruiterMessages() {
                       <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
                           {selectedConversation.participants[0]?.avatar ? (
-                            <img 
-                              src={selectedConversation.participants[0].avatar} 
+                            <img
+                              src={selectedConversation.participants[0].avatar}
                               alt={selectedConversation.participants[0].name}
-                              className="w-10 h-10 rounded-full object-cover" 
+                              className="w-10 h-10 rounded-full object-cover"
                             />
                           ) : (
                             <User className="h-5 w-5 text-muted-foreground" />
@@ -728,7 +723,7 @@ export default function RecruiterMessages() {
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm">
                         <Phone className="h-4 w-4" />
@@ -750,59 +745,63 @@ export default function RecruiterMessages() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {messages[selectedConversation.id]?.map((message) => (
-                        <div key={message.id} className={`flex ${message.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] rounded-lg p-3 ${
-                            message.senderId === user?.id 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-muted'
-                          }`}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-medium">
-                                {message.senderId === user?.id ? 'You' : message.senderName}
-                              </span>
-                              <span className="text-xs opacity-70">
-                                {formatTime(message.timestamp)}
-                              </span>
-                              <Badge 
-                                variant="outline"
-                                className={`text-xs ${getMessageTypeColor(message.messageType)}`}
-                              >
-                                {message.messageType.replace('_', ' ')}
-                              </Badge>
-                            </div>
-                            
-                            {message.subject && (
-                              <h4 className="font-semibold mb-1 text-sm">
-                                {message.subject}
-                              </h4>
-                            )}
-                            
-                            <p className="text-sm whitespace-pre-wrap">
-                              {message.content}
-                            </p>
-                            
-                            {message.senderId === user?.id && (
-                              <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
-                                {message.read ? (
-                                  <>
-                                    <CheckCheck className="h-3 w-3" />
-                                    <span>Seen</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Check className="h-3 w-3" />
-                                    <span>Delivered</span>
-                                  </>
-                                )}
+                      {messages[selectedConversation.id]?.length > 0 ? (
+                        messages[selectedConversation.id].map((message) => (
+                          <div key={message.id} className={`flex ${message.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                            <div
+                              className={`max-w-[80%] rounded-lg p-3 ${
+                                message.senderId === user?.id
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-medium">
+                                  {message.senderId === user?.id ? 'You' : message.senderName}
+                                </span>
+                                <span className="text-xs opacity-70">{formatTime(message.timestamp)}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${getMessageTypeColor(message.messageType)}`}
+                                >
+                                  {message.messageType.replace('_', ' ')}
+                                </Badge>
                               </div>
-                            )}
+                              {message.subject && (
+                                <h4 className="font-semibold mb-1 text-sm">{message.subject}</h4>
+                              )}
+                              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                              {message.senderId === user?.id && (
+                                <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
+                                  {message.read ? (
+                                    <>
+                                      <CheckCheck className="h-3 w-3" />
+                                      <span>Seen</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="h-3 w-3" />
+                                      <span>Delivered</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        // New empty conversation state
+                        <div className="text-center py-6">
+                          <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                          <h3 className="text-lg font-semibold text-foreground mb-2">No messages yet</h3>
+                          <p className="text-muted-foreground">
+                            Start the conversation by sending a message below
+                          </p>
                         </div>
-                      ))}
-                      
-                      {/* Typing indicator */}
-                      {selectedConversation.participants.some(p => p.isTyping) && (
+                      )}
+
+                      {/* Typing indicator - separate this from the conditional above */}
+                      {selectedConversation.participants.some((p) => p.isTyping) && (
                         <div className="flex justify-start">
                           <div className="bg-muted rounded-lg p-3 max-w-[80%]">
                             <div className="flex items-center gap-2 mb-1">
@@ -811,14 +810,14 @@ export default function RecruiterMessages() {
                               </span>
                             </div>
                             <div className="flex space-x-1">
-                              <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]"></div>
-                              <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]"></div>
+                              <div className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '-0.3s' }}></div>
+                              <div className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '-0.15s' }}></div>
                               <div className="h-2 w-2 rounded-full bg-primary animate-bounce"></div>
                             </div>
                           </div>
                         </div>
                       )}
-                      
+
                       <div ref={messageEndRef}></div>
                     </div>
                   )}
@@ -843,7 +842,7 @@ export default function RecruiterMessages() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     {/* Message Input */}
                     <div className="flex gap-3">
                       <div className="flex-1">
@@ -863,7 +862,7 @@ export default function RecruiterMessages() {
                         />
                       </div>
                       <div className="flex flex-col justify-end">
-                        <Button 
+                        <Button
                           onClick={handleSendMessage}
                           disabled={!newMessage.trim() || sendingMessage || !isConnected}
                           size="sm"

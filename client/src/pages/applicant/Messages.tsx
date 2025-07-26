@@ -609,58 +609,70 @@ export default function Messages() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {messages[selectedConversation.id]?.map((message) => (
-                        <div key={message.id} className={`flex ${message.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] rounded-lg p-3 ${
-                            message.senderId === user?.id 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-muted'
-                          }`}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-medium">
-                                {message.senderId === user?.id ? 'You' : message.senderName}
-                              </span>
-                              <span className="text-xs opacity-70">
-                                {formatTime(message.timestamp)}
-                              </span>
-                              <Badge 
-                                variant="outline"
-                                className={`text-xs ${getMessageTypeColor(message.messageType)}`}
-                              >
-                                {message.messageType.replace('_', ' ')}
-                              </Badge>
-                            </div>
-                            
-                            {message.subject && (
-                              <h4 className="font-semibold mb-1 text-sm">
-                                {message.subject}
-                              </h4>
-                            )}
-                            
-                            <p className="text-sm whitespace-pre-wrap">
-                              {message.content}
-                            </p>
-                            
-                            {message.senderId === user?.id && (
-                              <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
-                                {message.read ? (
-                                  <>
-                                    <CheckCheck className="h-3 w-3" />
-                                    <span>Seen</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Check className="h-3 w-3" />
-                                    <span>Delivered</span>
-                                  </>
-                                )}
+                      {messages[selectedConversation.id]?.length > 0 ? (
+                        // Existing message mapping code
+                        messages[selectedConversation.id].map((message) => (
+                          <div key={message.id} className={`flex ${message.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg p-3 ${
+                              message.senderId === user?.id 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'bg-muted'
+                            }`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-medium">
+                                  {message.senderId === user?.id ? 'You' : message.senderName}
+                                </span>
+                                <span className="text-xs opacity-70">
+                                  {formatTime(message.timestamp)}
+                                </span>
+                                <Badge 
+                                  variant="outline"
+                                  className={`text-xs ${getMessageTypeColor(message.messageType)}`}
+                                >
+                                  {message.messageType.replace('_', ' ')}
+                                </Badge>
                               </div>
-                            )}
+                              
+                              {message.subject && (
+                                <h4 className="font-semibold mb-1 text-sm">
+                                  {message.subject}
+                                </h4>
+                              )}
+                              
+                              <p className="text-sm whitespace-pre-wrap">
+                                {message.content}
+                              </p>
+                              
+                              {message.senderId === user?.id && (
+                                <div className="flex items-center gap-1 mt-1 text-xs opacity-70">
+                                  {message.read ? (
+                                    <>
+                                      <CheckCheck className="h-3 w-3" />
+                                      <span>Seen</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="h-3 w-3" />
+                                      <span>Delivered</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        // New empty conversation state
+                        <div className="text-center py-6">
+                          <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                          <h3 className="text-lg font-semibold text-foreground mb-2">No messages yet</h3>
+                          <p className="text-muted-foreground">
+                            Start the conversation by sending a message below
+                          </p>
                         </div>
-                      ))}
+                      )}
                       
-                      {/* Typing indicator */}
+                      {/* Typing indicator - keep this part */}
                       {selectedConversation.participants.some(p => p.isTyping) && (
                         <div className="flex justify-start">
                           <div className="bg-muted rounded-lg p-3 max-w-[80%]">
